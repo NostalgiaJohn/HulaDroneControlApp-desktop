@@ -21,7 +21,7 @@ class HulaDrone:
             "message": "等待连接..." # 可以用于显示一般信息
         }
         self.controller: Controller = None
-        self._initial_heading_offset: float = 0.0
+        self._initial_heading_offset: int = 0
 
         self._query_thread = threading.Thread(target=self._query_loop, daemon=True)
         self._control_thread = None # 将在Controller实例化后创建
@@ -78,7 +78,7 @@ class HulaDrone:
                     instance=self.instance,
                     heading_ini=self._initial_heading_offset,
                     target_location=initial_pos, # 初始目标设为当前位置或默认值
-                    control_interval=1,
+                    control_interval=0.1,
                     pid_x=PidCalculator(kp=0.8, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                     pid_y=PidCalculator(kp=0.8, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                     pid_z=PidCalculator(kp=0.6, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
@@ -248,7 +248,7 @@ class HulaDrone:
             self.status["message"] = "无效的目标位置"
         self._notify_status_callbacks()
 
-    def set_rotation(self, rotate_degrees: int):
+    def right_rotation(self, rotate_degrees: int):
         """直接控制无人机旋转指定的偏航角度（非PID控制）。
            正数为右转，负数为左转。
         """
@@ -317,20 +317,21 @@ class HulaDrone:
 
 
 
-    def square_flight(self, side_length: float, unit: str = "time"):
+    def square_flight(self, side_length: float, unit: str = "time",completion_callback=None, step_callback=None):
+        """
+        执行四方形飞行路径
+        
+        Args:
+            side_length (float): 正方形边长
+            unit (str): 'time' 表示时间单位(秒)，'distance' 表示距离单位(cm)
+            completion_callback (callable, optional): 飞行完成后执行的回调函数
+        """
         if not self.status["connected"]:
             self.status["message"] = "未连接，无法执行四方飞行"
             self._notify_status_callbacks()
             return
 
-        if self.controller and self.controller.running:
-            self.controller.pause()
-            self.status["message"] = "PID已暂停以执行四方飞行"
-            self._notify_status_callbacks()
-            time.sleep(1) # 等待无人机稳定
-
         # 原始的四方飞行逻辑
-        distance = side_length
         if unit == "time":
             speed = 10  # cm/s, 假设值
             actual_distance = speed * side_length # 如果side_length是秒
@@ -345,36 +346,50 @@ class HulaDrone:
         # 如果 SDK 的 single_fly_xxx 的参数是距离 (cm):
         fly_dist = int(actual_distance) # 确保是整数
         target_pos_original = self.controller.get_target_location()
-        fly_plan = list()
-        # 这里假设 target_pos_original 是一个列表或元组，包含 [x, y, z] 坐标
+        fly_plan = list(6) # 初始化飞行计划列表，飞行计划包括6个点，分别由 (x, y, z, complete_right_turn_degree) 组成
+        # target_pos_original 是一个列表或元组，包含 [x, y, z] 坐标
         if target_pos_original and len(target_pos_original) == 3:
             x_original, y_original, z_original = target_pos_original
             # 计算四个目标位置
-            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original))
-            fly_plan.append((x_original - fly_dist/2, y_original + fly_dist/2, z_original))
-            fly_plan.append((x_original + fly_dist/2, y_original + fly_dist/2, z_original))
-            fly_plan.append((x_original + fly_dist/2, y_original - fly_dist/2, z_original))
-            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original)) # 回到起点
+            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 0))
+            fly_plan.append((x_original - fly_dist/2, y_original + fly_dist/2, z_original, 90))
+            fly_plan.append((x_original + fly_dist/2, y_original + fly_dist/2, z_original, 90))
+            fly_plan.append((x_original + fly_dist/2, y_original - fly_dist/2, z_original, 90))
+            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 90))
+            fly_plan.append((x_original, y_original, z_original, 0))# 回到起点
         else:
             self.status["message"] = "无法获取当前目标位置，无法计算飞行路径。"
             self._notify_status_callbacks()
             return
 
         try:
+            self.set_heading(self._initial_heading_offset) # 设置航向为初始航向
             # 执行飞行计划
-            pass
+            def wrapped_completion_callback():
+                """包装完成回调以添加四方飞行特定的消息"""
+                self.status["message"] = "四方飞行已完成"
+                self._notify_status_callbacks()
+                if completion_callback:
+                    completion_callback()
+            
+            success = self.execute_fly_plan(
+                fly_plan, 
+                completion_callback=wrapped_completion_callback,
+                step_callback=step_callback
+            )
+            
+            if not success:
+                self.status["message"] = "四方飞行初始化失败"
+                self._notify_status_callbacks()
         except Exception as e:
             self.status["message"] = f"四方飞行出错: {e}"
             print(f"四方飞行出错: {e}")
-
-
-        if self.controller:
-            current_pos = self.instance.get_coordinate()
-            if current_pos:
-                self.controller.set_target_location(current_pos)
+            # 如果出错，确保清理飞行计划
+            self._cleanup_fly_plan()
+        finally:
             self.controller.resume()
             self.status["message"] += "，PID已恢复"
-        self._notify_status_callbacks()
+            self._notify_status_callbacks()
 
     def toggle_laser(self, enable: bool):
         if not self.status["connected"]:
@@ -388,6 +403,123 @@ class HulaDrone:
             self.instance.plane_fly_generating(5, 0, 0)
             self.status["message"] = "激光已关闭"
         self._notify_status_callbacks()
+
+    def execute_fly_plan(self, fly_plan, completion_callback=None, step_callback=None):
+        """
+        执行飞行计划，在每个目标点到达后继续下一个点，全部完成后执行回调
+        
+        Args:
+            fly_plan (list): 包含(x, y, z, complete_right_turn_degree)的飞行计划点列表
+            completion_callback (callable, optional): 整个飞行计划完成后执行的回调函数
+            step_callback (callable, optional): 每个飞行点到达后执行的回调函数，参数为当前点索引
+        """
+        if not fly_plan:
+            self.status["message"] = "无法执行飞行计划：计划为空"
+            self._notify_status_callbacks()
+            return False
+        
+        if not self.status["connected"]:
+            self.status["message"] = "无法执行飞行计划：无人机未连接"
+            self._notify_status_callbacks()
+            return False
+        
+        if self.controller is None:
+            self.status["message"] = "无法执行飞行计划：控制器未初始化"
+            self._notify_status_callbacks()
+            return False
+
+        # 清理可能存在的旧飞行计划
+        self._cleanup_fly_plan()
+        
+        # 储存飞行计划和回调以供访问
+        self._current_fly_plan = fly_plan
+        self._current_fly_plan_index = 0
+        self._fly_plan_completion_callback = completion_callback
+        self._fly_plan_step_callback = step_callback
+        
+        # 定义目标到达的回调函数
+        def on_target_reached(current_position):
+            """当目标位置到达时的回调处理"""
+            # 确保飞行计划正在执行
+            if not hasattr(self, '_current_fly_plan') or not hasattr(self, '_current_fly_plan_index'):
+                return
+            
+            # 更新状态消息
+            current_index = self._current_fly_plan_index
+            current_point = self._current_fly_plan[current_index]
+            total_points = len(self._current_fly_plan)
+            self.status["message"] = f"执行飞行计划：到达第{current_index + 1}/{total_points}个点：[{current_point[0]}, {current_point[1]}, {current_point[2]}]"
+            self._notify_status_callbacks()
+            
+            # 如果存在步骤回调，执行它
+            if self._fly_plan_step_callback:
+                try:
+                    self._fly_plan_step_callback(current_point[3])
+                except Exception as e:
+                    print(f"步骤回调执行错误: {e}")
+            
+            # 移动到下一个点
+            self._current_fly_plan_index += 1
+            
+            # 检查是否完成了整个计划
+            if self._current_fly_plan_index >= len(self._current_fly_plan):
+                # 飞行计划完成
+                self.status["message"] = "飞行计划已完成"
+                self._notify_status_callbacks()
+                
+                # 执行完成回调
+                if self._fly_plan_completion_callback:
+                    try:
+                        self._fly_plan_completion_callback()
+                    except Exception as e:
+                        print(f"完成回调执行错误: {e}")
+                
+                # 清理计划相关属性
+                self._cleanup_fly_plan()
+                return
+            
+            # 设置下一个目标点
+            next_point = self._current_fly_plan[self._current_fly_plan_index][0:3] # 取前3个元素 (x, y, z)
+            self.controller.set_target_location(list(*next_point))
+            
+            # 更新状态消息
+            self.status["message"] = f"执行飞行计划：前往第{self._current_fly_plan_index + 1}/{total_points}个点：[{next_point[0]}, {next_point[1]}, {next_point[2]}]"
+            self._notify_status_callbacks()
+        
+        # 保存回调函数以便后续清理
+        self._target_reached_callback = on_target_reached
+        
+        try:
+            # 注册目标到达回调
+            self.controller.register_target_reached_callback(self._target_reached_callback)
+            
+            # 确保控制器在运行
+            if not self.controller._pause_event.is_set():
+                self.controller.resume()
+            
+            # 设置第一个目标位置
+            first_point = fly_plan[0][0:3] # 取前3个元素 (x, y, z)
+            self.controller.set_target_location(list(*first_point))
+            self.status["message"] = f"执行飞行计划：前往第1/{len(fly_plan)}个点：[{first_point[0]}, {first_point[1]}, {first_point[2]}]"
+            self._notify_status_callbacks()
+            return True
+            
+        except Exception as e:
+            self.status["message"] = f"执行飞行计划出错: {e}"
+            print(f"执行飞行计划出错: {e}")
+            self._cleanup_fly_plan()
+            return False
+
+    def _cleanup_fly_plan(self):
+        """清理飞行计划相关的属性和回调"""
+        if hasattr(self, '_target_reached_callback') and self.controller:
+            self.controller.unregister_target_reached_callback(self._target_reached_callback)
+            del self._target_reached_callback
+        
+        for attr in ['_current_fly_plan', '_current_fly_plan_index', 
+                    '_fly_plan_completion_callback', '_fly_plan_step_callback']:
+            if hasattr(self, attr):
+                delattr(self, attr)
 
     def capture_image_stream(self): # 改名以示区分，此方法仅打开流
         if not self.status["connected"]:
@@ -413,6 +545,10 @@ class HulaDrone:
         print("开始执行安全退出程序...")
         self.status["message"] = "正在退出..."
         self._notify_status_callbacks()
+
+        # 确保清理飞行计划
+        # if hasattr(self, '_cleanup_fly_plan'):
+        self._cleanup_fly_plan()
 
         if self.controller:
             self.controller.running = False # 请求PID控制回路停止

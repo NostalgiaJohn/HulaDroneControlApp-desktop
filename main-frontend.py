@@ -62,6 +62,7 @@ class HulaDroneGUI_CTk_Enhanced:
         frame.grid(row=row*2 + 1, column=0, padx=0, pady=(0, self.padding), sticky="ew")
         return frame
 
+    ## --- 连接与状态 UI ---
     def setup_connection_info_ui(self, parent_container):
         frame = self._create_section_frame(parent_container, "连接与状态", 0)
         frame.grid_columnconfigure(1, weight=1) # IP entry expands
@@ -95,7 +96,7 @@ class HulaDroneGUI_CTk_Enhanced:
         self.heading_label = ctk.CTkLabel(status_sub_frame, text="航向: 未知", font=self.font_small, anchor="w")
         self.heading_label.grid(row=1, column=2, pady=2, sticky="w")
 
-
+    ## --- 飞行控制 UI ---
     def setup_flight_control_ui(self, parent_container):
         frame = self._create_section_frame(parent_container, "飞行控制", 1)
         frame.grid_columnconfigure((1,3,5), weight=0) # Entries fixed width
@@ -127,10 +128,10 @@ class HulaDroneGUI_CTk_Enhanced:
         ctk.CTkButton(frame, text="移动", command=self.action_move_to_target, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=1, column=6, padx=(self.padding, self.padding), pady=self.padding, sticky="ew")
 
         # Row 2: Rotation
-        ctk.CTkLabel(frame, text="旋转 (度):", font=self.font_main).grid(row=2, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
-        self.heading_entry = ctk.CTkEntry(frame, width=move_entry_width, font=self.font_main, corner_radius=self.corner_radius); self.heading_entry.insert(0, "0")
-        self.heading_entry.grid(row=2, column=1, padx=5, pady=self.padding)
-        ctk.CTkButton(frame, text="开始旋转", command=self.action_set_rotation, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=2, column=2, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
+        ctk.CTkLabel(frame, text="右转 (度):", font=self.font_main).grid(row=2, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
+        self.rotation_entry = ctk.CTkEntry(frame, width=move_entry_width, font=self.font_main, corner_radius=self.corner_radius); self.rotation_entry.insert(0, "0")
+        self.rotation_entry.grid(row=2, column=1, padx=5, pady=self.padding)
+        ctk.CTkButton(frame, text="开始旋转", command=self.action_right_rotation, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=2, column=2, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
 
         # Row 3: Set Heading
         ctk.CTkLabel(frame, text="航向 (度):", font=self.font_main).grid(row=2, column=4, padx=(self.padding,0), pady=self.padding, sticky="e")
@@ -141,7 +142,7 @@ class HulaDroneGUI_CTk_Enhanced:
             height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
         ).grid(row=2, column=6, padx=(self.padding, 5), pady=self.padding, sticky="ew")
 
-
+    ## --- 正方形飞行 UI ---
     def setup_square_flight_ui(self, parent_container):
         frame = self._create_section_frame(parent_container, "自动飞行: 正方形", 2)
         frame.grid_columnconfigure(3, weight=1) # Button expands
@@ -160,7 +161,7 @@ class HulaDroneGUI_CTk_Enhanced:
 
         ctk.CTkButton(frame, text="飞行正方形路径", command=self.action_square_flight, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=0, column=3, padx=(0, self.padding), pady=self.padding, sticky="ew")
 
-
+    ## --- 激光与视频流 UI ---
     def setup_laser_video_ui(self, parent_container):
         frame = self._create_section_frame(parent_container, "Accessories", 3)
         frame.grid_columnconfigure(1, weight=1) # Stream button expands
@@ -178,8 +179,8 @@ class HulaDroneGUI_CTk_Enhanced:
         ).grid(row=0, column=1, padx=(0, self.padding), pady=self.padding, sticky="ew")
 
     # --- Action Methods (Unchanged from previous CustomTkinter version) ---
-    def _run_drone_action_in_thread(self, action_func, *args):
-        thread = threading.Thread(target=action_func, args=args, daemon=True)
+    def _run_drone_action_in_thread(self, action_func, *args, **kwargs):
+        thread = threading.Thread(target=action_func, args=args, kwargs=kwargs, daemon=True)
         thread.start()
 
     def action_connect_drone(self):
@@ -210,11 +211,11 @@ class HulaDroneGUI_CTk_Enhanced:
         except ValueError:
             messagebox.showerror("输入错误", "坐标必须为有效数字")
 
-    def action_set_rotation(self):
+    def action_right_rotation(self):
         try:
-            heading = int(self.heading_entry.get())
-            self.status_label.configure(text=f"状态: 正在旋转 {heading}°...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.set_rotation, heading)
+            rotate_degrees = int(self.rotation_entry.get())
+            self.status_label.configure(text=f"状态: 正在旋转 {rotate_degrees}°...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.right_rotation, rotate_degrees)
         except ValueError:
             messagebox.showerror("输入错误", "旋转角度必须为有效整数")
 
@@ -231,7 +232,7 @@ class HulaDroneGUI_CTk_Enhanced:
             side = float(self.side_length_entry.get())
             unit = self.unit_var.get()
             self.status_label.configure(text=f"状态: 正在开始正方形飞行 (边长: {side} {unit})...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.square_flight, side, unit)
+            self._run_drone_action_in_thread(self.drone.square_flight, side, unit, step_callback=self.drone.right_rotation)
         except ValueError:
             messagebox.showerror("输入错误", "边长必须为有效数字")
 

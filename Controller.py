@@ -78,19 +78,27 @@ class Controller:
     pid_z: PidCalculator = None
     running: bool = False
     control_interval: float = 0.1  # Seconds
+    control_tolerance: int = 5
     _lock: threading.Lock = None
     _pause_event: threading.Event = None
     # Initialize JSON data storage
     json_data = []
     # Generate filename with current date and time
     current_time = datetime.now().strftime("%Y%m%d_%H%M")
-    json_file = f'flight_data_{current_time}.json'
+    json_file = f'flight_data_{current_time}.json'    
+    # 添加回调相关属性
+    _target_reached_callbacks: list = None
+    _target_monitor_lock: threading.Lock = None
 
     def __post_init__(self):
         """Initialize the thread lock and pause event after dataclass creation."""
         self._lock = threading.Lock()
         self._pause_event = threading.Event()
         self._pause_event.set()  # Initially set to allow the thread to run
+        # 初始化回调列表和监视锁
+        self._target_reached_callbacks = []
+        self._target_monitor_lock = threading.Lock()
+        
 
     def __calculate_location_delta(self, current: list, desired: list) -> list:
         """Calculate the difference between current and desired coordinates.
@@ -135,6 +143,49 @@ class Controller:
         dx_local = dx_global * math.cos(heading_rad) + dy_global *-math.sin(heading_rad)
         dy_local = dx_global * math.sin(heading_rad) + dy_global * math.cos(heading_rad)
         return dx_local, dy_local
+
+    def register_target_reached_callback(self, callback):
+        """
+        注册目标到达时的回调函数
+        
+        Args:
+            callback: 一个接受当前位置的函数，形式为 callback(current_position)
+        """
+        with self._target_monitor_lock:
+            if callback not in self._target_reached_callbacks:
+                self._target_reached_callbacks.append(callback)
+                return True
+        return False
+    
+    def unregister_target_reached_callback(self, callback):
+        """
+        注销目标到达回调函数
+        
+        Args:
+            callback: 先前注册的回调函数
+        """
+        with self._target_monitor_lock:
+            if callback in self._target_reached_callbacks:
+                self._target_reached_callbacks.remove(callback)
+                return True
+        return False
+    
+    def _notify_target_reached(self, current_position):
+        """
+        通知所有注册的回调函数目标已达到
+        
+        Args:
+            current_position: 当前位置坐标
+        """
+        callbacks_to_call = []
+        with self._target_monitor_lock:
+            callbacks_to_call = self._target_reached_callbacks.copy()
+        
+        for callback in callbacks_to_call:
+            try:
+                callback(current_position)
+            except Exception as e:
+                print(f"目标到达回调执行出错: {e}")
 
     def set_target_location(self, new_target: list) -> bool:
         """Update target_location thread-safely with validation.
@@ -214,10 +265,16 @@ class Controller:
             dy = self.pid_y.compute(dy_local)
             dz = self.pid_z.compute(dz)
 
-            threshold = 2  # Tolerance in cm
-            if all(abs(d) < threshold for d in [dx_local, dy_local, dz]):
+            # Tolerance in cm
+            if all(abs(d) < self.control_tolerance for d in [dx_local, dy_local, dz]):
                 print("Target reached, hovering")
+                # 当达到目标位置时触发回调，但只触发一次直到位置变化
+                if not target_notified:
+                    self._notify_target_reached(current_location)
+                    target_notified = True
             else:
+                # 位置发生变化，重置通知标志
+                target_notified = False
                 self.instance.single_fly_straight_flight(int(dx), int(dy), int(dz))
 
             ## Telemetry section 2
