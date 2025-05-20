@@ -66,24 +66,17 @@ class HulaDrone:
                 self._initial_heading_offset = self.instance.get_yaw()[0]
 
                 # 初始化Controller
-                # 获取当前位置作为PID控制器的初始目标（悬停）
-                # 注意：get_coordinate() 返回的是 [x,y,z]
-                initial_pos = [0, 0, 150]
-                # if not initial_pos or len(initial_pos) != 3:
-                #     initial_pos = [0, 0, 50] # 默认初始悬停目标
-                #     print("警告：无法获取初始坐标，使用默认目标 [0,0,50]")
-
-
                 self.controller = Controller(
                     instance=self.instance,
                     heading_ini=self._initial_heading_offset,
-                    target_location=initial_pos, # 初始目标设为当前位置或默认值
+                    target_location=[0, 0, 100], # 初始目标设为当前位置或默认值
                     control_interval=0.1,
                     pid_x=PidCalculator(kp=0.8, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                     pid_y=PidCalculator(kp=0.8, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                     pid_z=PidCalculator(kp=0.6, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                 )
                 self._control_thread = threading.Thread(target=self.controller.control_loop, daemon=True)
+                self.controller.pause() # 未起飞，先暂停 controller
                 self._notify_status_callbacks()
                 print("无人机连接成功，控制器已初始化。")
                 return True
@@ -201,10 +194,10 @@ class HulaDrone:
         self.status["message"] = "起飞命令已发送"
         # 起飞后，让无人机在当前XY，指定高度（例如50cm）悬停
         # Controller的target_location会在其循环中被使用
-        current_coords = self.instance.get_coordinate()
-        if current_coords:
-            self.controller.set_target_location([current_coords[0], current_coords[1], 50]) # 目标高度50cm
-            self.status["message"] = "已起飞，目标高度50cm"
+        initial_pos = [0, 0, 100]
+        if initial_pos:
+            self.controller.set_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
+            self.status["message"] = f"已起飞，目标位置：[{initial_pos[0]}, {initial_pos[1]}, {initial_pos[2]}]"
         else:
             # 如果无法获取当前坐标，Controller会使用其初始化时的默认目标
             self.status["message"] = "已起飞，前往默认目标位置"

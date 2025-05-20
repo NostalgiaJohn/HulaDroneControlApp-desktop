@@ -72,7 +72,7 @@ class Controller:
     """
     instance: pyhula.UserApi
     heading_ini : int = 0
-    target_location: list = None
+    target_location: list = [0, 0, 100]
     pid_x: PidCalculator = None
     pid_y: PidCalculator = None
     pid_z: PidCalculator = None
