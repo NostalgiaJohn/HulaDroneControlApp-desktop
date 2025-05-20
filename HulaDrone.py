@@ -76,7 +76,6 @@ class HulaDrone:
                     pid_z=PidCalculator(kp=0.6, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                 )
                 self._control_thread = threading.Thread(target=self.controller.control_loop, daemon=True)
-                self.controller.pause() # 未起飞，先暂停 controller
                 self._notify_status_callbacks()
                 print("无人机连接成功，控制器已初始化。")
                 return True
@@ -152,8 +151,10 @@ class HulaDrone:
             if self.controller and not self.controller.running: # 检查Controller内部状态
                 if self._control_thread and not self._control_thread.is_alive():
                     self.controller.running = True # 设置Controller的运行标志
+                    self.controller.pause() # 未起飞，先暂停 controller
                     self._control_thread.start()
-                    print("PID控制服务已启动。")
+                    print("PID控制服务线程已启动。")
+                    print("PID控制服务线程已挂起，由于未起飞。")
                 else:
                      print("控制线程已在运行或未正确初始化。")
             elif not self.controller:
