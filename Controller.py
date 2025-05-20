@@ -85,7 +85,7 @@ class Controller:
     json_data = []
     # Generate filename with current date and time
     current_time = datetime.now().strftime("%Y%m%d_%H%M")
-    json_file = f'flight_data_{current_time}.json'    
+    json_file = f'./flight_journals/flight_data_{current_time}.json'    
     # 添加回调相关属性
     _target_reached_callbacks: list = None
     _target_monitor_lock: threading.Lock = None

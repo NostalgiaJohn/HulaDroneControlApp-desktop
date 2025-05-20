@@ -68,7 +68,7 @@ class HulaDrone:
                 # 初始化Controller
                 # 获取当前位置作为PID控制器的初始目标（悬停）
                 # 注意：get_coordinate() 返回的是 [x,y,z]
-                initial_pos = [0, 0, 50]
+                initial_pos = [0, 0, 150]
                 # if not initial_pos or len(initial_pos) != 3:
                 #     initial_pos = [0, 0, 50] # 默认初始悬停目标
                 #     print("警告：无法获取初始坐标，使用默认目标 [0,0,50]")
@@ -280,9 +280,9 @@ class HulaDrone:
             self.status["message"] += "，PID已恢复"
         self._notify_status_callbacks()
 
-    def set_heading(self, heading: int):
+    def set_heading(self, to_head: int):
         """直接控制无人机朝向指定的偏航角度（非PID控制）。
-           0°为正北，顺时针方向。
+           0°为初始方向，顺时针方向增加。
         """
         if not self.status["connected"]:
             self.status["message"] = "未连接，无法设置航向"
@@ -297,18 +297,18 @@ class HulaDrone:
 
         # 计算当前航向与目标航向之间的差值
         current_heading = self.status["heading"]
-        heading_diff = (heading - current_heading) % 360
+        heading_diff = (to_head - current_heading) % 360
         if heading_diff > 180:
             heading_diff -= 360
         # 直接控制无人机旋转到目标航向
         if heading_diff > 0:
             self.instance.single_fly_turnright(abs(heading_diff))
-            self.status["message"] = f"设置航向为 {heading}°，向右旋转 {abs(heading_diff)}°"
+            self.status["message"] = f"设置航向为 {to_head}°，向右旋转 {abs(heading_diff)}°"
         elif heading_diff < 0:
             self.instance.single_fly_turnleft(abs(heading_diff))
-            self.status["message"] = f"设置航向为 {heading}°，向左旋转 {abs(heading_diff)}°"
+            self.status["message"] = f"设置航向为 {to_head}°，向左旋转 {abs(heading_diff)}°"
         else:
-            self.status["message"] = f"航向已设置为 {heading}°，无需旋转"
+            self.status["message"] = f"航向已设置为 {to_head}°，无需旋转"
 
         if self.controller and self.controller._pause_event.is_set() == False : # 检查是否是因为本次调用而暂停的
             self.controller.resume()
@@ -346,7 +346,7 @@ class HulaDrone:
         # 如果 SDK 的 single_fly_xxx 的参数是距离 (cm):
         fly_dist = int(actual_distance) # 确保是整数
         target_pos_original = self.controller.get_target_location()
-        fly_plan = list(6) # 初始化飞行计划列表，飞行计划包括6个点，分别由 (x, y, z, complete_right_turn_degree) 组成
+        fly_plan = list() # 初始化飞行计划列表，飞行计划包括6个点，分别由 (x, y, z, complete_right_turn_degree) 组成
         # target_pos_original 是一个列表或元组，包含 [x, y, z] 坐标
         if target_pos_original and len(target_pos_original) == 3:
             x_original, y_original, z_original = target_pos_original
@@ -363,7 +363,7 @@ class HulaDrone:
             return
 
         try:
-            self.set_heading(self._initial_heading_offset) # 设置航向为初始航向
+            self.set_heading(0) # 设置航向为 0
             # 执行飞行计划
             def wrapped_completion_callback():
                 """包装完成回调以添加四方飞行特定的消息"""
@@ -480,7 +480,7 @@ class HulaDrone:
             
             # 设置下一个目标点
             next_point = self._current_fly_plan[self._current_fly_plan_index][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_target_location(list(*next_point))
+            self.controller.set_target_location(list(next_point))
             
             # 更新状态消息
             self.status["message"] = f"执行飞行计划：前往第{self._current_fly_plan_index + 1}/{total_points}个点：[{next_point[0]}, {next_point[1]}, {next_point[2]}]"
@@ -499,7 +499,7 @@ class HulaDrone:
             
             # 设置第一个目标位置
             first_point = fly_plan[0][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_target_location(list(*first_point))
+            self.controller.set_target_location(list(first_point))
             self.status["message"] = f"执行飞行计划：前往第1/{len(fly_plan)}个点：[{first_point[0]}, {first_point[1]}, {first_point[2]}]"
             self._notify_status_callbacks()
             return True
@@ -547,14 +547,13 @@ class HulaDrone:
         self._notify_status_callbacks()
 
         # 确保清理飞行计划
-        # if hasattr(self, '_cleanup_fly_plan'):
         self._cleanup_fly_plan()
 
         if self.controller:
             self.controller.running = False # 请求PID控制回路停止
             if self._control_thread and self._control_thread.is_alive():
                 print("等待控制线程结束...")
-                self._control_thread.join(timeout=3.0)
+                self._control_thread.join(timeout=0.5)
                 if self._control_thread.is_alive():
                     print("警告：控制线程未能及时结束。")
             if hasattr(self.controller, 'json_data') and self.controller.json_data:

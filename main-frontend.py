@@ -148,7 +148,7 @@ class HulaDroneGUI_CTk_Enhanced:
         frame.grid_columnconfigure(3, weight=1) # Button expands
 
         ctk.CTkLabel(frame, text="边长:", font=self.font_main).grid(row=0, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
-        self.side_length_entry = ctk.CTkEntry(frame, width=80, font=self.font_main, corner_radius=self.corner_radius); self.side_length_entry.insert(0, "50")
+        self.side_length_entry = ctk.CTkEntry(frame, width=80, font=self.font_main, corner_radius=self.corner_radius); self.side_length_entry.insert(0, "200")
         self.side_length_entry.grid(row=0, column=1, padx=5, pady=self.padding)
 
         # Radio buttons in their own sub-frame for better grouping
