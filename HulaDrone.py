@@ -3,6 +3,7 @@ import pyhula
 import time
 import cv2 # 仅当实际使用cv2功能时保留
 import threading
+import queue
 from datetime import datetime # 用于 Controller 中的文件名
 import json # 用于 Controller 中的数据转储
 
@@ -14,6 +15,9 @@ class HulaDrone:
         self.instance: pyhula.UserApi = pyhula.UserApi()
         self.status: dict = {
             "connected": False,
+            "takeoff": False,
+            "cam_stream": False,
+
             "battery_level": "未知",
             "heading": "未知",
             "location": ["未知", "未知"], # x, y
@@ -25,8 +29,10 @@ class HulaDrone:
 
         self._query_thread = threading.Thread(target=self._query_loop, daemon=True)
         self._control_thread = None # 将在Controller实例化后创建
+        self._cam_thread = None # 将在图像流捕获时创建
 
         self._query_running: bool = False
+        self._cam_running: bool = False
         # self.controller.running 由 Controller 内部管理，或通过 HulaDrone 的方法间接控制
 
         self._status_callbacks = [] # 列表，用于存储注册的回调函数
@@ -190,22 +196,29 @@ class HulaDrone:
             if not self.start_background_services():
                 return
 
+        try:
+            self.instance.single_fly_takeoff()
+            self.status["message"] = "起飞命令已发送"
+            self.status["takeoff"] = True
+            # 起飞后，让无人机在当前XY，指定高度（例如50cm）悬停
+            # Controller的target_location会在其循环中被使用
+            initial_pos = [0, 0, 100]
+            if initial_pos:
+                self.controller.set_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
+                self.status["message"] = f"已起飞，目标位置：[{initial_pos[0]}, {initial_pos[1]}, {initial_pos[2]}]"
+            else:
+                # 如果无法获取当前坐标，Controller会使用其初始化时的默认目标
+                self.status["message"] = "已起飞，前往默认目标位置"
 
-        self.instance.single_fly_takeoff()
-        self.status["message"] = "起飞命令已发送"
-        # 起飞后，让无人机在当前XY，指定高度（例如50cm）悬停
-        # Controller的target_location会在其循环中被使用
-        initial_pos = [0, 0, 100]
-        if initial_pos:
-            self.controller.set_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
-            self.status["message"] = f"已起飞，目标位置：[{initial_pos[0]}, {initial_pos[1]}, {initial_pos[2]}]"
-        else:
-            # 如果无法获取当前坐标，Controller会使用其初始化时的默认目标
-            self.status["message"] = "已起飞，前往默认目标位置"
-
-        if self.controller and self.controller._pause_event.is_set() == False: # 如果之前是暂停的
-            self.controller.resume() # 确保PID控制器是活动的
-        self._notify_status_callbacks()
+            if self.controller and self.controller._pause_event.is_set() == False: # 如果之前是暂停的
+                self.controller.resume() # 确保PID控制器是活动的
+            self._notify_status_callbacks()
+        
+        except Exception as e:
+            print(f"起飞失败：{e}")
+            self.status["message"] = f"起飞失败：{e}"
+            self.status["takeoff"] = False
+            self._notify_status_callbacks()
 
 
     def land(self):
@@ -221,12 +234,19 @@ class HulaDrone:
             self._notify_status_callbacks()
             time.sleep(0.5) # 给悬停一点时间
 
-        self.instance.single_fly_touchdown()
-        self.status["message"] = "降落命令已发送"
-        # 降落后，可以考虑停止PID控制器的运行标志，但保留查询线程
-        if self.controller:
-             self.controller.running = False # 标记PID回路可以结束
-        self._notify_status_callbacks()
+        try:
+            self.instance.single_fly_touchdown()
+            self.status["message"] = "降落命令已发送"
+            # 降落后，可以考虑停止PID控制器的运行标志，但保留查询线程
+            if self.controller:
+                self.controller.running = False # 标记PID回路可以结束
+            self._notify_status_callbacks()
+        
+        except Exception as e:
+            print(f"降落失败：{e}")
+            self.status["message"] = f"降落失败：{e}"
+            self.status["takeoff"] = True
+            self._notify_status_callbacks()
 
     def move_to_target(self, x: float, y: float, z: float):
         """通过PID控制器移动到全局目标坐标 [x, y, z] (单位cm)。"""
@@ -515,24 +535,60 @@ class HulaDrone:
             if hasattr(self, attr):
                 delattr(self, attr)
 
-    def capture_image_stream(self): # 改名以示区分，此方法仅打开流
+    def _capture_image_loop(self, queue: queue.Queue):
+        """捕获图像流并将其放入队列"""
+        while self._cam_running:
+            # print("capturing image")
+            if self.status["connected"]:
+                try:
+                    image = self.instance.get_image_array() # 获取图像数据
+                    if image is None:
+                        continue
+                    # 处理图像数据
+                    if image is not None:
+                        if queue.full():
+                            queue.get_nowait() # 如果队列满，丢弃最旧的图像
+                        queue.put(image) # 将图像放入队列
+                except Exception as e:
+                    print(f"捕获图像时出错: {e}")
+                    break
+            else:
+                time.sleep(1) # 等待连接
+            time.sleep(0.1) # 控制捕获频率
+
+    def capture_image_stream(self, queue: queue.Queue): # 改名以示区分，此方法仅打开流
         if not self.status["connected"]:
             self.status["message"] = "未连接，无法打开视频流"
+            self._notify_status_callbacks()
+            return
+        if self.status["cam_stream"]:
+            self.status["message"] = "未操作，视频流已经打开"
             self._notify_status_callbacks()
             return
         try:
             self.instance.Plane_cmd_swith_rtp(0)      # 开启视频流命令
             time.sleep(1)                         # 等待流初始化
-            self.instance.single_fly_flip_rtp()       # 打开视频流窗口的命令
+
+                # window = pyhula.get_image_array() # 这里假设 get_image_array() 返回一个窗口对象
+                # if window:
+                #     window.iconify()  # 最小化窗口
+                # return window
+            self.instance.single_fly_flip_rtp()      # 打开视频流窗口的命令
+
             self.status["message"] = "打开视频流命令已发送"
             # 注意：实际图像数据的获取和显示需要更复杂的处理，
             # pyhula.get_image_array() 如果可用，需要在查询循环或独立线程中处理。
             # 对于简单的“前后端分离”而不改逻辑，我们只负责发送命令。
+            self._cam_running = True
+            self._cam_thread = threading.Thread(target=self._capture_image_loop, args=(queue,))
+            # 启动图像捕获线程
+            self._cam_thread.start()
+            
         except Exception as e:
             self.status["message"] = f"打开视频流失败: {e}"
             print(f"打开视频流失败: {e}")
-        self._notify_status_callbacks()
-
+            self._notify_status_callbacks()
+            return
 
     def graceful_exit(self):
         """安全地停止所有无人机活动并关闭线程。"""
@@ -544,8 +600,8 @@ class HulaDrone:
         self._cleanup_fly_plan()
 
         if self.controller:
-            self.controller.running = False # 请求PID控制回路停止
             if self._control_thread and self._control_thread.is_alive():
+                self.controller.running = False # 请求PID控制回路停止
                 print("等待控制线程结束...")
                 self._control_thread.join(timeout=0.5)
                 if self._control_thread.is_alive():
@@ -558,17 +614,25 @@ class HulaDrone:
                     print(f"保存飞行数据时出错: {e}")
 
 
-        if self.status.get("connected", False):
+        if self.status.get("connected", False) and self.status.get("takeoff", False): # 获取无人机连接状态与起飞状态，默认为 False
             print("正在尝试降落无人机...")
             self.land() # land 方法内部会暂停PID并发送降落指令
-            time.sleep(4) # 给无人机足够的时间降落
+            time.sleep(2) # 给无人机足够的时间降落
 
-        self._query_running = False # 请求查询线程停止
         if self._query_thread and self._query_thread.is_alive():
+            self._query_running = False # 请求查询线程停止
             print("等待查询线程结束...")
-            self._query_thread.join(timeout=2.0)
+            self._query_thread.join(timeout=1.0)
             if self._query_thread.is_alive():
                 print("警告：查询线程未能及时结束。")
+
+        self._cam_running = False
+        if self._cam_thread and self._cam_thread.is_alive():
+            self.instance.Plane_cmd_swith_rtp(1)
+            print("等待图像捕获线程结束...")
+            self._cam_thread.join(timeout=1.0)
+            if self._cam_thread.is_alive():
+                print("警告：图像捕获线程未能及时结束。")
 
         # SDK 是否有显式的断开连接方法？
         # if hasattr(self.instance, 'disconnect'):

@@ -266,6 +266,7 @@ class Controller:
             dz = self.pid_z.compute(dz)
 
             # Tolerance in cm
+            target_notified = False
             if all(abs(d) < self.control_tolerance for d in [dx_local, dy_local, dz]):
                 print("Target reached, hovering")
                 # 当达到目标位置时触发回调，但只触发一次直到位置变化
