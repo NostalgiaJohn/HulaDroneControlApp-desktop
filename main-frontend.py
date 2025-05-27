@@ -6,6 +6,8 @@ from tkinter import messagebox
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 matplotlib.use("TkAgg")
 import numpy as np
 import PIL.Image, PIL.ImageTk
@@ -21,7 +23,7 @@ class HulaDroneGUI_CTk_Enhanced:
     def __init__(self, root: ctk.CTk):
         self.root = root
         self.root.title("Hula 无人机控制")
-        self.root.geometry("800x600")  # 初始窗口大小较小，之后会调整
+        self.root.geometry("800x400")  # 初始窗口大小较小，之后会调整
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing_window)
 
         # --- 主题设置 ---
@@ -47,8 +49,8 @@ class HulaDroneGUI_CTk_Enhanced:
         self.corner_radius = 8
         self.padding = 10
         self.button_height = 35
-        self.image_width = 400
-        self.image_height = 300
+        self.image_width = 1280//3
+        self.image_height = 720//3
 
         # --- 初始化无人机实例和状态 ---
         self.drone = HulaDrone()
@@ -231,9 +233,30 @@ class HulaDroneGUI_CTk_Enhanced:
         video_frame.grid_rowconfigure(0, weight=1)
         video_frame.grid_columnconfigure(0, weight=1)
         
-        # 创建视频显示标签
-        self.video_display = ctk.CTkLabel(video_frame, text="未开启视频流", corner_radius=8)
-        self.video_display.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        # 创建Matplotlib图形用于显示视频
+        self.video_fig = plt.figure(figsize=(10.7, 3))
+        self.video_ax = plt.Axes(self.video_fig, [0, 0, 1, 1], facecolor='black')
+        self.video_ax.set_axis_off()
+        self.video_ax.set_facecolor("black")
+        self.video_fig.add_axes(self.video_ax)
+        
+        # 创建初始黑色图像
+        self.video_img = self.video_ax.imshow(np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8))
+        
+        # 嵌入Matplotlib到Tkinter
+        self.video_canvas = FigureCanvasTkAgg(self.video_fig, master=video_frame)
+        self.video_canvas_widget = self.video_canvas.get_tk_widget()
+        self.video_canvas_widget.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        self.video_canvas_widget.config(background="black")
+        
+        # 添加状态文本显示
+        self.video_status_label = ctk.CTkLabel(
+            video_frame, 
+            text="未开启视频流", 
+            font=self.font_small,
+            corner_radius=self.corner_radius
+        )
+        self.video_status_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 10))
         
         # 飞行路径显示区域
         path_frame = self._create_section_frame(self.display_frame, "飞行路径", 1)
@@ -242,7 +265,7 @@ class HulaDroneGUI_CTk_Enhanced:
         
         # 设置 Matplotlib 字体
         font = matplotlib.font_manager.FontProperties(fname="./fonts/PingFangSC-Regular.otf")
-        plt.rcParams['font.family'] = 'PingFang SC'
+        # plt.rcParams['font.family'] = 'PingFang SC'
         # 创建Matplotlib图形用于显示路径
         self.fig, self.ax = plt.subplots(figsize=(5, 4))
         self.ax.set_title("无人机飞行轨迹", fontproperties=font)
@@ -525,75 +548,114 @@ class HulaDroneGUI_CTk_Enhanced:
     
     # --- 视频流处理相关方法 ---
     def start_video_stream(self):
-        """启动视频流处理线程"""
+        """启动视频流处理"""
         if not hasattr(self, 'main_interface_created') or not self.main_interface_created:
             return
-            
+                
         if not self.video_stream_active:
             self.video_stream_active = True
-            self.video_thread = threading.Thread(target=self.process_video_frames, daemon=True)
-            self.video_thread.start()
-    
-    def process_video_frames(self):
-        """处理视频帧并在GUI中显示"""
-        try:
-            while self.video_stream_active and self.gui_active:
-                frame = self.frame_raw_queue.get()
-                if frame is None:
-                    continue
-
-                # 处理帧（调整大小等，原图片大小为1280 * 720）
-                frame = cv2.resize(frame, (640, 480), PIL.Image.LANCZOS)
-                
-                # 可以在这里添加框或文字标注
-                cv2.putText(frame, "Hula Drone Camera", (20, 30), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                
-                # 将帧放入队列
+            self.video_status_label.configure(text="视频流已开启")
+            
+            # 创建动画
+            def update_frame(frame_num):
                 try:
-                    if self.frame_update_queue.full():
-                        self.frame_update_queue.get_nowait()  # 移除旧帧
-                    self.frame_update_queue.put(frame)
-                    self.update_video_display()
-                except:
-                    pass
+                    if not self.frame_raw_queue.empty():
+                        frame = self.frame_raw_queue.get_nowait()
+                        if frame is not None:
+                            # 调整大小并转换颜色空间
+                            frame = cv2.resize(frame, (self.image_width, self.image_height))
+                            # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            self.video_img.set_data(frame)
+                    return [self.video_img]
+                except Exception as e:
+                    print(f"视频帧更新错误: {e}")
+                    return [self.video_img]
+            
+            # 创建动画对象
+            self.video_animation = FuncAnimation(
+                self.video_fig, 
+                update_frame, 
+                interval=30,  # 更新间隔(毫秒)
+                blit=True
+            )
+            
+            # 绘制初始画布
+            self.video_canvas.draw()
+    
+    def stop_video_stream(self):
+        """停止视频流处理"""
+        if hasattr(self, 'video_animation') and self.video_animation is not None:
+            self.video_animation.event_source.stop()
+            self.video_animation = None
+        
+        self.video_stream_active = False
+        self.video_status_label.configure(text="视频流已关闭")
+        
+        # 显示黑屏
+        black_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
+        self.video_img.set_data(black_frame)
+        self.video_canvas.draw()
 
-                # 短暂暂停
-                time.sleep(0.05)
-                # frame.release()
-        except Exception as e:
-                print(f"视频处理错误: {e}")
-                self.update_video_display(f"视频处理错误: {e}")
-        finally:
-                self.video_stream_active = False
+    # def process_video_frames(self):
+    #     """处理视频帧并在GUI中显示"""
+    #     try:
+    #         while self.video_stream_active and self.gui_active:
+    #             frame = self.frame_raw_queue.get()
+    #             if frame is None:
+    #                 continue
 
-    def update_video_display(self, message=None):
-        """更新视频显示区域的内容"""
-        if not hasattr(self, 'main_interface_created') or not self.main_interface_created or not self.gui_active:
-            return
-            
-        if message:
-            # 显示文本消息
-            self.video_display.configure(text=message, image=None)
-            return
-            
-        try:
-            # 尝试从队列获取帧
-            frame = self.frame_update_queue.get_nowait() if not self.frame_update_queue.empty() else None
-            
-            if frame is not None:
-                # 将Numpy数组转换为PIL图像
-                image = PIL.Image.fromarray(frame)
-                photo = ctk.CTkImage(light_image=image, size=(self.image_width, self.image_height))
-                # photo = PIL.ImageTk.PhotoImage(image=image)
+    #             # 处理帧（调整大小等，原图片大小为1280 * 720）
+    #             frame = cv2.resize(frame, (640, 480), PIL.Image.LANCZOS)
                 
-                # 更新视频标签
-                self.video_display.configure(image=photo, text="")
-                self.video_display.image = photo  # 保持引用，防止垃圾回收
+    #             # 可以在这里添加框或文字标注
+    #             cv2.putText(frame, "Hula Drone Camera", (20, 30), 
+    #                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                
+    #             # 将帧放入队列
+    #             try:
+    #                 if self.frame_update_queue.full():
+    #                     self.frame_update_queue.get_nowait()  # 移除旧帧
+    #                 self.frame_update_queue.put(frame)
+    #                 self.update_video_display()
+    #             except:
+    #                 pass
+
+    #             # 短暂暂停
+    #             time.sleep(0.05)
+    #             # frame.release()
+    #     except Exception as e:
+    #             print(f"视频处理错误: {e}")
+    #             self.update_video_display(f"视频处理错误: {e}")
+    #     finally:
+    #             self.video_stream_active = False
+
+    # def update_video_display(self, message=None):
+    #     """更新视频显示区域的内容"""
+    #     if not hasattr(self, 'main_interface_created') or not self.main_interface_created or not self.gui_active:
+    #         return
             
-        except Exception as e:
-            print(f"更新视频显示错误: {e}")
-            self.video_display.configure(text=f"视频显示错误: {e}", image=None)
+    #     if message:
+    #         # 显示文本消息
+    #         self.video_display.configure(text=message, image=None)
+    #         return
+            
+    #     try:
+    #         # 尝试从队列获取帧
+    #         frame = self.frame_update_queue.get_nowait() if not self.frame_update_queue.empty() else None
+            
+    #         if frame is not None:
+    #             # 将Numpy数组转换为PIL图像
+    #             image = PIL.Image.fromarray(frame)
+    #             photo = ctk.CTkImage(light_image=image, size=(self.image_width, self.image_height))
+    #             # photo = PIL.ImageTk.PhotoImage(image=image)
+                
+    #             # 更新视频标签
+    #             self.video_display.configure(image=photo, text="")
+    #             self.video_display.image = photo  # 保持引用，防止垃圾回收
+            
+    #     except Exception as e:
+    #         print(f"更新视频显示错误: {e}")
+    #         self.video_display.configure(text=f"视频显示错误: {e}", image=None)
 
     # --- 动作方法 ---
     def _run_drone_action_in_thread(self, action_func, *args, **kwargs):
@@ -660,12 +722,14 @@ class HulaDroneGUI_CTk_Enhanced:
         self._run_drone_action_in_thread(self.drone.toggle_laser, enable)
 
     def action_capture_image_stream(self):
-        self.main_status_label.configure(text="状态: 正在切换视频流...", text_color=self._get_status_color("orange"))
-        self._run_drone_action_in_thread(self.drone.capture_image_stream, self.frame_raw_queue)
-        
-        # 启动本地视频流处理
-        self.start_video_stream()
-        self.update_video_display("正在连接视频流...")
+        if not self.video_stream_active:
+            self.main_status_label.configure(text="状态: 正在开启视频流...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.capture_image_stream, self.frame_raw_queue)
+            self.start_video_stream()
+        # else:
+        #     self.main_status_label.configure(text="状态: 正在关闭视频流...", text_color=self._get_status_color("orange"))
+        #     self._run_drone_action_in_thread(self.drone.stop_image_stream)
+        #     self.stop_video_stream()
 
     # --- UI 更新和关闭 ---
     def _get_status_color(self, color_name: str):
@@ -757,7 +821,12 @@ class HulaDroneGUI_CTk_Enhanced:
                 self.main_status_label.configure(text="状态: 正在退出，请稍候...", text_color=self._get_status_color("orange"))
             else:
                 self.status_label.configure(text="状态: 正在退出，请稍候...", text_color=self._get_status_color("orange"))
-                
+            
+            # 停止视频动画
+            if hasattr(self, 'video_animation') and self.video_animation is not None:
+                self.video_animation.event_source.stop()
+                self.video_animation = None
+
             self.root.update_idletasks()
             self.drone.unregister_status_callback(self.update_status_display_from_callback)
 
