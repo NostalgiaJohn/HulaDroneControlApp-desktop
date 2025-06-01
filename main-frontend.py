@@ -57,7 +57,7 @@ class HulaDroneGUI_CTk_Enhanced:
         self.drone.register_status_callback(self.update_status_display_from_callback)
 
         self.default_ip = ""
-        self.gui_active = True
+        self.gui_active = False  # 跟踪GUI是否处于活动状态
         self.connected = False  # 跟踪连接状态
         
         # 飞行路径数据和视频流相关
@@ -83,10 +83,8 @@ class HulaDroneGUI_CTk_Enhanced:
         # 不pack它，直到连接成功
 
         # # Track all scheduled callbacks and animations
-        # self.scheduled_callbacks = []
-        # self.cleanup_in_progress = False
-
-        self.show_main_interface() # 调试用
+        self.scheduled_callbacks = []
+        self.cleanup_in_progress = False
         
     def setup_connection_frame(self):
         """创建连接界面"""
@@ -181,8 +179,8 @@ class HulaDroneGUI_CTk_Enhanced:
         self.root.geometry("1200x850")
         
         # 主界面采用网格布局
-        self.main_interface_frame.columnconfigure(0, weight=2)  # 控制区域
-        self.main_interface_frame.columnconfigure(1, weight=3)  # 显示区域
+        self.main_interface_frame.columnconfigure(0, weight=3)  # 控制区域
+        self.main_interface_frame.columnconfigure(1, weight=2)  # 显示区域
         self.main_interface_frame.rowconfigure(0, weight=1)     # 单行布局
         
         # 创建左侧控制区域
@@ -402,9 +400,9 @@ class HulaDroneGUI_CTk_Enhanced:
         ctk.CTkLabel(frame, text="右转 (度):", font=self.font_main).grid(row=2, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
         self.rotation_entry = ctk.CTkEntry(frame, width=move_entry_width, font=self.font_main, corner_radius=self.corner_radius); self.rotation_entry.insert(0, "0")
         self.rotation_entry.grid(row=2, column=1, padx=5, pady=self.padding)
-        ctk.CTkButton(frame, text="开始旋转", command=self.action_right_rotation, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=2, column=2, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
+        ctk.CTkButton(frame, text="开始旋转", command=self.action_rotation, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=2, column=2, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
 
-        # Row 3: Set Heading
+        # Row 2: Set Heading
         ctk.CTkLabel(frame, text="航向 (度):", font=self.font_main).grid(row=2, column=4, padx=(self.padding,0), pady=self.padding, sticky="e")
         self.heading_entry = ctk.CTkEntry(frame, width=move_entry_width, font=self.font_main, corner_radius=self.corner_radius); self.heading_entry.insert(0, "0")
         self.heading_entry.grid(row=2, column=5, padx=5, pady=self.padding)
@@ -412,6 +410,265 @@ class HulaDroneGUI_CTk_Enhanced:
             frame, text="设置航向", command=self.action_set_heading,
             height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
         ).grid(row=2, column=6, padx=(self.padding, 5), pady=self.padding, sticky="ew")
+
+        # Row 3: Manual Control
+        # 添加方向控制界面
+        self.setup_direction_control_ui(frame, 3)  # 从第3行开始
+
+        # Row 4: Detect and aim routine
+        ctk.CTkButton(
+            frame, text="目标检测", command=self.action_detect,
+            height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
+        ).grid(row=4, column=0, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
+        ctk.CTkButton(
+            frame, text="瞄准", command=self.action_aim_target,
+            height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
+        ).grid(row=4, column=2, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
+
+    def setup_direction_control_ui(self, parent_container, start_row):
+        """添加更紧凑的方向控制按钮界面"""
+        # # 创建标题标签
+        # ctk.CTkLabel(
+        #     parent_container, 
+        #     text="方向控制", 
+        #     font=self.font_title, 
+        #     anchor="w"
+        # ).grid(row=start_row, column=0, columnspan=7, sticky="w", pady=(15, 5), padx=self.padding)
+        
+        # 创建主控制框架
+        control_frame = ctk.CTkFrame(parent_container, fg_color="transparent")
+        control_frame.grid(row=start_row, column=0, columnspan=7, sticky="ew", padx=self.padding, pady=(0, 5))
+        
+        # 将控制框架分为左右两部分
+        control_frame.grid_columnconfigure(0, weight=1)  # 左侧 - 相机+航向控制
+        control_frame.grid_columnconfigure(1, weight=1)  # 右侧 - 移动控制
+        
+        # ===== 左侧：相机+航向控制 =====
+        cam_heading_frame = ctk.CTkFrame(control_frame, fg_color="transparent")
+        cam_heading_frame.grid(row=0, column=0, sticky="nsew", padx=0)
+        cam_heading_frame.grid_columnconfigure((0, 1), weight=1)
+        
+        # --- 左上：相机控制 ---
+        cam_control_frame = ctk.CTkFrame(cam_heading_frame, fg_color=("gray90", "gray20"))
+        cam_control_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        
+        # 相机控制标题和步长
+        ctk.CTkLabel(
+            cam_control_frame, 
+            text="相机俯仰控制", 
+            font=self.font_small, 
+            anchor="center"
+        ).pack(pady=(5, 2))
+        
+        step_frame = ctk.CTkFrame(cam_control_frame, fg_color="transparent")
+        step_frame.pack(fill="x", pady=2)
+        
+        ctk.CTkLabel(
+            step_frame, 
+            text="步长:", 
+            font=("PingFangSC-Regular", 12)
+        ).pack(side="left", padx=(45, 5))
+        
+        self.camera_step_entry = ctk.CTkEntry(
+            step_frame, 
+            width=40, 
+            height=25,
+            font=("PingFangSC-Regular", 12), 
+            corner_radius=self.corner_radius
+        )
+        self.camera_step_entry.pack(side="left")
+        self.camera_step_entry.insert(0, "5")
+        
+        ctk.CTkLabel(step_frame, text="°", font=("PingFangSC-Regular", 12)).pack(side="left")
+        
+        # 相机控制按钮
+        buttons_frame = ctk.CTkFrame(cam_control_frame, fg_color="transparent")
+        buttons_frame.pack(fill="both", expand=True, pady=3)
+        
+        # 上按钮
+        ctk.CTkButton(
+            buttons_frame, 
+            text="↑", 
+            command=self.action_camera_pitch_up,
+            width=45, 
+            height=30, 
+            font=(self.font_main[0], 18), 
+            corner_radius=self.corner_radius
+        ).grid(row=0, column=0, pady=(0, 5), padx=(60, 0))
+        
+        # 下按钮
+        ctk.CTkButton(
+            buttons_frame, 
+            text="↓", 
+            command=self.action_camera_pitch_down,
+            width=45, 
+            height=30, 
+            font=(self.font_main[0], 18), 
+            corner_radius=self.corner_radius
+        ).grid(row=1, column=0, pady=(0, 25), padx=(60, 0))
+        
+        # --- 右上：航向控制 ---
+        heading_control_frame = ctk.CTkFrame(cam_heading_frame, fg_color=("gray90", "gray20"))
+        heading_control_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        
+        # 航向控制标题和步长
+        ctk.CTkLabel(
+            heading_control_frame, 
+            text="航向控制", 
+            font=self.font_small, 
+            anchor="center"
+        ).pack(pady=(5, 2))
+        
+        step_frame = ctk.CTkFrame(heading_control_frame, fg_color="transparent")
+        step_frame.pack(fill="x", pady=2)
+        
+        ctk.CTkLabel(
+            step_frame, 
+            text="步长:", 
+            font=("PingFangSC-Regular", 12)
+        ).pack(side="left", padx=(50, 5))
+        
+        self.heading_step_entry = ctk.CTkEntry(
+            step_frame, 
+            width=40,
+            height=25,
+            font=("PingFangSC-Regular", 12), 
+            corner_radius=self.corner_radius
+        )
+        self.heading_step_entry.pack(side="left")
+        self.heading_step_entry.insert(0, "5")
+        
+        ctk.CTkLabel(step_frame, text="°", font=("PingFangSC-Regular", 12)).pack(side="left")
+        
+        # 航向控制按钮
+        buttons_frame = ctk.CTkFrame(heading_control_frame, fg_color="transparent")
+        buttons_frame.pack(fill="both", expand=True, pady=3)
+        
+        # 左按钮
+        ctk.CTkButton(
+            buttons_frame, 
+            text="←", 
+            command=self.action_heading_left,
+            width=45, 
+            height=30, 
+            font=(self.font_main[0], 18), 
+            corner_radius=self.corner_radius
+        ).grid(row=0, column=0, padx=(35, 5))
+        
+        # 右按钮
+        ctk.CTkButton(
+            buttons_frame, 
+            text="→", 
+            command=self.action_heading_right,
+            width=45, 
+            height=30, 
+            font=(self.font_main[0], 18), 
+            corner_radius=self.corner_radius
+        ).grid(row=0, column=1)
+        
+        # ===== 右侧：移动控制 =====
+        movement_frame = ctk.CTkFrame(control_frame, fg_color=("gray90", "gray20"))
+        movement_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        
+        # 移动控制标题和步长
+        ctk.CTkLabel(
+            movement_frame, 
+            text="无人机移动控制", 
+            font=self.font_small, 
+            anchor="center"
+        ).pack(pady=(5, 2))
+        
+        step_frame = ctk.CTkFrame(movement_frame, fg_color="transparent")
+        step_frame.pack(fill="x", pady=2)
+        
+        ctk.CTkLabel(
+            step_frame, 
+            text="步长:", 
+            font=("PingFangSC-Regular", 12)
+        ).pack(side="left", padx=(5, 2))
+        
+        self.movement_step_entry = ctk.CTkEntry(
+            step_frame, 
+            width=40,
+            height=25,
+            font=("PingFangSC-Regular", 12), 
+            corner_radius=self.corner_radius
+        )
+        self.movement_step_entry.pack(side="left")
+        self.movement_step_entry.insert(0, "10")
+        
+        ctk.CTkLabel(step_frame, text="cm", font=("PingFangSC-Regular", 12)).pack(side="left")
+        
+        # 移动控制按钮
+        movement_buttons_frame = ctk.CTkFrame(movement_frame, fg_color="transparent")
+        movement_buttons_frame.pack(fill="both", expand=True, pady=(3, 5))
+        movement_buttons_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        
+        button_size = 35
+        button_font = (self.font_small[0], 14)
+        
+        # 布局六个移动按钮
+        # 前后上下按钮
+        ctk.CTkButton(
+            movement_buttons_frame, 
+            text="前", 
+            command=self.action_move_forward,
+            width=button_size, 
+            height=button_size, 
+            font=button_font, 
+            corner_radius=self.corner_radius
+        ).grid(row=0, column=1, padx=2, pady=2)
+        
+        ctk.CTkButton(
+            movement_buttons_frame, 
+            text="后", 
+            command=self.action_move_backward,
+            width=button_size, 
+            height=button_size, 
+            font=button_font, 
+            corner_radius=self.corner_radius
+        ).grid(row=1, column=1, padx=2, pady=2)
+        
+        ctk.CTkButton(
+            movement_buttons_frame, 
+            text="上", 
+            command=self.action_move_up,
+            width=button_size, 
+            height=button_size, 
+            font=button_font, 
+            corner_radius=self.corner_radius
+        ).grid(row=0, column=3, padx=2, pady=2)
+        
+        ctk.CTkButton(
+            movement_buttons_frame, 
+            text="下", 
+            command=self.action_move_down,
+            width=button_size, 
+            height=button_size, 
+            font=button_font, 
+            corner_radius=self.corner_radius
+        ).grid(row=1, column=3, padx=2, pady=2)
+        
+        # 左右按钮
+        ctk.CTkButton(
+            movement_buttons_frame, 
+            text="左", 
+            command=self.action_move_left,
+            width=button_size, 
+            height=button_size, 
+            font=button_font, 
+            corner_radius=self.corner_radius
+        ).grid(row=1, column=0, padx=2, pady=2)
+        
+        ctk.CTkButton(
+            movement_buttons_frame, 
+            text="右", 
+            command=self.action_move_right,
+            width=button_size, 
+            height=button_size, 
+            font=button_font, 
+            corner_radius=self.corner_radius
+        ).grid(row=1, column=2, padx=2, pady=2)
 
     ## --- 正方形飞行 UI ---
     def setup_square_flight_ui(self, parent_container):
@@ -652,15 +909,15 @@ class HulaDroneGUI_CTk_Enhanced:
             y = float(self.y_entry.get())
             z = float(self.z_entry.get())
             self.main_status_label.configure(text=f"状态: 正在移动到 ({x},{y},{z})...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.move_to_target, x, y, z)
+            self._run_drone_action_in_thread(self.drone.move_to_global_target, x, y, z)
         except ValueError:
             messagebox.showerror("输入错误", "坐标必须为有效数字")
 
-    def action_right_rotation(self):
+    def action_rotation(self):
         try:
             rotate_degrees = int(self.rotation_entry.get())
             self.main_status_label.configure(text=f"状态: 正在旋转 {rotate_degrees}°...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.right_rotation, rotate_degrees)
+            self._run_drone_action_in_thread(self.drone.set_rotation, rotate_degrees)
         except ValueError:
             messagebox.showerror("输入错误", "旋转角度必须为有效整数")
 
@@ -672,12 +929,110 @@ class HulaDroneGUI_CTk_Enhanced:
         except ValueError:
             messagebox.showerror("输入错误", "航向角度必须为有效整数")
 
+    ## --- 手动控制Action ---    
+    # 相机俯仰控制动作
+    def action_camera_pitch_up(self):
+        try:
+            step = int(self.camera_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 相机向上调整 {step}°...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.set_camera_relative_pitch, -step)  # 负值表示向上
+        except ValueError:
+            messagebox.showerror("输入错误", "相机步长必须为有效整数")
+    
+    def action_camera_pitch_down(self):
+        try:
+            step = int(self.camera_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 相机向下调整 {step}°...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.set_camera_relative_pitch, step)  # 正值表示向下
+        except ValueError:
+            messagebox.showerror("输入错误", "相机步长必须为有效整数")
+    
+    # 航向控制动作
+    def action_heading_left(self):
+        try:
+            step = int(self.heading_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 航向左转 {step}°...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.set_rotation, -step)  # 负值表示左转
+        except ValueError:
+            messagebox.showerror("输入错误", "航向步长必须为有效整数")
+    
+    def action_heading_right(self):
+        try:
+            step = int(self.heading_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 航向右转 {step}°...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.set_rotation, step)  # 正值表示右转
+        except ValueError:
+            messagebox.showerror("输入错误", "航向步长必须为有效整数")
+    
+    # 无人机移动控制动作 - 使用本地坐标系
+    def action_move_forward(self):
+        try:
+            step = int(self.movement_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 向前移动 {step}cm...", text_color=self._get_status_color("orange"))
+            # 在本地坐标系中，前进是y轴正方向
+            self._run_drone_action_in_thread(self.drone.move_to_local_target, 0, step, 0)
+        except ValueError:
+            messagebox.showerror("输入错误", "移动步长必须为有效整数")
+    
+    def action_move_backward(self):
+        try:
+            step = int(self.movement_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 向后移动 {step}cm...", text_color=self._get_status_color("orange"))
+            # 在本地坐标系中，后退是y轴负方向
+            self._run_drone_action_in_thread(self.drone.move_to_local_target, 0, -step, 0)
+        except ValueError:
+            messagebox.showerror("输入错误", "移动步长必须为有效整数")
+    
+    def action_move_left(self):
+        try:
+            step = int(self.movement_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 向左移动 {step}cm...", text_color=self._get_status_color("orange"))
+            # 在本地坐标系中，左移是x轴负方向
+            self._run_drone_action_in_thread(self.drone.move_to_local_target, -step, 0, 0)
+        except ValueError:
+            messagebox.showerror("输入错误", "移动步长必须为有效整数")
+    
+    def action_move_right(self):
+        try:
+            step = int(self.movement_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 向右移动 {step}cm...", text_color=self._get_status_color("orange"))
+            # 在本地坐标系中，右移是x轴正方向
+            self._run_drone_action_in_thread(self.drone.move_to_local_target, step, 0, 0)
+        except ValueError:
+            messagebox.showerror("输入错误", "移动步长必须为有效整数")
+    
+    def action_move_up(self):
+        try:
+            step = int(self.movement_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 向上移动 {step}cm...", text_color=self._get_status_color("orange"))
+            # 上升是z轴正方向
+            self._run_drone_action_in_thread(self.drone.move_to_local_target, 0, 0, step)
+        except ValueError:
+            messagebox.showerror("输入错误", "移动步长必须为有效整数")
+    
+    def action_move_down(self):
+        try:
+            step = int(self.movement_step_entry.get())
+            self.main_status_label.configure(text=f"状态: 向下移动 {step}cm...", text_color=self._get_status_color("orange"))
+            # 下降是z轴负方向
+            self._run_drone_action_in_thread(self.drone.move_to_local_target, 0, 0, -step)
+        except ValueError:
+            messagebox.showerror("输入错误", "移动步长必须为有效整数")
+
+    ## --- 目标检测与瞄准 ---
+    def action_detect(self):
+        pass
+
+    def action_aim_target(self):
+        pass
+
+    ## --- 自动飞行相关方法 ---
     def action_square_flight(self):
         try:
             side = float(self.side_length_entry.get())
             unit = self.unit_var.get()
             self.main_status_label.configure(text=f"状态: 正在开始正方形飞行 (边长: {side} {unit})...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.square_flight, side, unit, step_callback=self.drone.right_rotation)
+            self._run_drone_action_in_thread(self.drone.square_flight, side, unit, step_callback=self.drone.set_rotation)
         except ValueError:
             messagebox.showerror("输入错误", "边长必须为有效数字")
 
@@ -851,7 +1206,7 @@ class HulaDroneGUI_CTk_Enhanced:
             exit_thread.start()
             
             # Schedule window destruction with a delay
-            self._schedule_callback(3000, self._destroy_root_safely)
+            self.root.after(1000, self._destroy_root_safely)
 
     def _destroy_root_safely(self):
         """Safely destroy the root window and clean up resources"""
@@ -893,6 +1248,10 @@ class HulaDroneGUI_CTk_Enhanced:
             sys.exit(0)
         finally:
             print("图形界面已安全关闭。")
+    
+    def run_gui(self):
+        self.root.mainloop()
+        self.gui_active = True
 
 # Main program entry point
 if __name__ == "__main__":

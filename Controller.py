@@ -140,9 +140,25 @@ class Controller:
             tuple: (dx_local, dy_local) in the drone's local frame.
         """
         heading_rad = math.radians(heading)
-        dx_local = dx_global * math.cos(heading_rad) + dy_global *-math.sin(heading_rad)
+        dx_local = dx_global * math.cos(heading_rad) - dy_global * math.sin(heading_rad)
         dy_local = dx_global * math.sin(heading_rad) + dy_global * math.cos(heading_rad)
         return dx_local, dy_local
+    
+    def __local_to_global(self, dx_local: float, dy_local: float, heading: float) -> tuple:
+        """Transform 2D position error from local to global frame using heading.
+
+        Args:
+            dx_local (float): X error in local frame.
+            dy_local (float): Y error in local frame.
+            heading (float): Current heading angle in degrees.
+
+        Returns:
+            tuple: (dx_global, dy_global) in the global frame.
+        """
+        heading_rad = math.radians(heading)
+        dx_global =  dx_local * math.cos(heading_rad) + dy_local * math.sin(heading_rad)
+        dy_global = -dx_local * math.sin(heading_rad) + dy_local * math.cos(heading_rad)
+        return dx_global, dy_global
 
     def register_target_reached_callback(self, callback):
         """
@@ -187,7 +203,7 @@ class Controller:
             except Exception as e:
                 print(f"目标到达回调执行出错: {e}")
 
-    def set_target_location(self, new_target: list) -> bool:
+    def set_global_target_location(self, new_target: list) -> bool:
         """Update target_location thread-safely with validation.
 
         Args:
@@ -202,6 +218,32 @@ class Controller:
             return False
         with self._lock:
             self.target_location = new_target.copy()
+            print(f"Target location updated to: {self.target_location}")
+            return True
+        
+    def set_local_target_location(self, new_target_local: list) -> bool:
+        """Update target_location thread-safely with validation in local frame.
+
+        Args:
+            new_target (list): [dx, dy, dz] in local frame.
+
+        Returns:
+            bool: True if update successful, False if input is invalid.
+        """
+        # Validate input: must be a list of 3 numbers
+        if not isinstance(new_target_local, list) or len(new_target_local) != 3 or not all(isinstance(x, (int, float)) for x in new_target_local):
+            print("Invalid target location: must be [dx, dy, dz]")
+            return False
+        with self._lock:
+            current_target_location = self.get_target_location()  # Get current target location
+            current_heading = self.instance.get_yaw()[0] - self.heading_ini # Get current heading (substracted by initial heading offset)
+            if not current_target_location or len(current_target_location) != 3:
+                print("Failed to get current coordinates")
+                return False
+            # Convert local to global coordinates
+            dx_global, dy_global = self.__local_to_global(new_target_local[0], new_target_local[1], current_heading)
+            new_target_global = [current_target_location[0] + dx_global, current_target_location[1] + dy_global, current_target_location[2] + new_target_local[2]]
+            self.target_location = new_target_global.copy()
             print(f"Target location updated to: {self.target_location}")
             return True
         
@@ -220,7 +262,7 @@ class Controller:
         if not current or len(current) != 3:
             print("Failed to get current coordinates")
             return False
-        return self.set_target_location(current)
+        return self.set_global_target_location(current)
 
     def pause(self):
         """Pause the control loop thread and command the drone to hover."""
@@ -248,10 +290,10 @@ class Controller:
             self.i = self.i + 1
 
             ## Control section
-            current_location = self.instance.get_coordinate()               # Get current location
-            current_heading = self.instance.get_yaw()[0] - self.heading_ini # Get current heading (substracted by initial heading offset)
 
             with self._lock:                            # Acquire target location safely
+                current_location = self.instance.get_coordinate()               # Get current location
+                current_heading = self.instance.get_yaw()[0] - self.heading_ini # Get current heading (substracted by initial heading offset)
                 target_location = self.target_location
 
             # Acquire x, y,z error and transform x, y error to local frame using current heading

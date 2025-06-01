@@ -14,7 +14,7 @@ class HulaDrone:
     def __init__(self):
         self.instance: pyhula.UserApi = pyhula.UserApi()
         self.status: dict = {
-            "connected": True,
+            "connected": False,
             "takeoff": False,
             "cam_stream": False,
 
@@ -70,6 +70,7 @@ class HulaDrone:
                 self.status["connected"] = True
                 self.status["message"] = "连接成功"
                 self._initial_heading_offset = self.instance.get_yaw()[0]
+                self.instance.single_fly_barrier_aircraft(False) # 关闭障碍物检测
 
                 # 初始化Controller
                 self.controller = Controller(
@@ -204,7 +205,7 @@ class HulaDrone:
             # Controller的target_location会在其循环中被使用
             initial_pos = [0, 0, 100]
             if initial_pos:
-                self.controller.set_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
+                self.controller.set_global_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
                 self.status["message"] = f"已起飞，目标位置：[{initial_pos[0]}, {initial_pos[1]}, {initial_pos[2]}]"
             else:
                 # 如果无法获取当前坐标，Controller会使用其初始化时的默认目标
@@ -248,7 +249,7 @@ class HulaDrone:
             self.status["takeoff"] = True
             self._notify_status_callbacks()
 
-    def move_to_target(self, x: float, y: float, z: float):
+    def move_to_global_target(self, x: float, y: float, z: float):
         """通过PID控制器移动到全局目标坐标 [x, y, z] (单位cm)。"""
         if not self.status["connected"] or not self.controller or not self.controller.running:
             self.status["message"] = "未连接或控制服务未运行，无法移动"
@@ -256,13 +257,27 @@ class HulaDrone:
             print(self.status["message"])
             return
 
-        if self.controller.set_target_location([x, y, z]):
+        if self.controller.set_global_target_location([x, y, z]):
             self.status["message"] = f"移动目标设定: [{x}, {y}, {z}]"
         else:
             self.status["message"] = "无效的目标位置"
         self._notify_status_callbacks()
 
-    def right_rotation(self, rotate_degrees: int):
+    def move_to_local_target(self, x: float, y: float, z: float):
+        """通过PID控制器移动到相对于当前坐标的目标位置 [x, y, z] (单位cm)。"""
+        if not self.status["connected"] or not self.controller or not self.controller.running:
+            self.status["message"] = "未连接或控制服务未运行，无法移动"
+            self._notify_status_callbacks()
+            print(self.status["message"])
+            return
+        
+        if self.controller.set_local_target_location([x, y, z]):
+            self.status["message"] = f"相对移动目标设定: [{x}, {y}, {z}]"
+        else:
+            self.status["message"] = "无效的相对目标位置"
+        self._notify_status_callbacks()
+
+    def set_rotation(self, rotate_degrees: int):
         """直接控制无人机旋转指定的偏航角度（非PID控制）。
            正数为右转，负数为左转。
         """
@@ -328,6 +343,12 @@ class HulaDrone:
             self.controller.resume()
             self.status["message"] += "，PID已恢复"
         self._notify_status_callbacks()
+
+    def set_camera_absolute_pitch(self, angle):
+        pass
+
+    def set_camera_relative_pitch(self, angle):
+        pass 
 
     def align_target_to_center(self, image, target_position, tolerance=10) -> bool:
         """
@@ -562,7 +583,7 @@ class HulaDrone:
             
             # 设置下一个目标点
             next_point = self._current_fly_plan[self._current_fly_plan_index][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_target_location(list(next_point))
+            self.controller.set_global_target_location(list(next_point))
             
             # 更新状态消息
             self.status["message"] = f"执行飞行计划：前往第{self._current_fly_plan_index + 1}/{total_points}个点：[{next_point[0]}, {next_point[1]}, {next_point[2]}]"
@@ -581,7 +602,7 @@ class HulaDrone:
             
             # 设置第一个目标位置
             first_point = fly_plan[0][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_target_location(list(first_point))
+            self.controller.set_global_target_location(list(first_point))
             self.status["message"] = f"执行飞行计划：前往第1/{len(fly_plan)}个点：[{first_point[0]}, {first_point[1]}, {first_point[2]}]"
             self._notify_status_callbacks()
             return True
