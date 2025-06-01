@@ -564,6 +564,7 @@ class HulaDroneGUI_CTk_Enhanced:
                         if frame is not None:
                             # 调整大小并转换颜色空间
                             frame = cv2.resize(frame, (self.image_width, self.image_height))
+                            # cv2.imwrite("temp_frame.jpg", frame)  # 保存临时帧用于调试
                             # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                             self.video_img.set_data(frame)
                     return [self.video_img]
@@ -595,67 +596,6 @@ class HulaDroneGUI_CTk_Enhanced:
         black_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
         self.video_img.set_data(black_frame)
         self.video_canvas.draw()
-
-    # def process_video_frames(self):
-    #     """处理视频帧并在GUI中显示"""
-    #     try:
-    #         while self.video_stream_active and self.gui_active:
-    #             frame = self.frame_raw_queue.get()
-    #             if frame is None:
-    #                 continue
-
-    #             # 处理帧（调整大小等，原图片大小为1280 * 720）
-    #             frame = cv2.resize(frame, (640, 480), PIL.Image.LANCZOS)
-                
-    #             # 可以在这里添加框或文字标注
-    #             cv2.putText(frame, "Hula Drone Camera", (20, 30), 
-    #                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                
-    #             # 将帧放入队列
-    #             try:
-    #                 if self.frame_update_queue.full():
-    #                     self.frame_update_queue.get_nowait()  # 移除旧帧
-    #                 self.frame_update_queue.put(frame)
-    #                 self.update_video_display()
-    #             except:
-    #                 pass
-
-    #             # 短暂暂停
-    #             time.sleep(0.05)
-    #             # frame.release()
-    #     except Exception as e:
-    #             print(f"视频处理错误: {e}")
-    #             self.update_video_display(f"视频处理错误: {e}")
-    #     finally:
-    #             self.video_stream_active = False
-
-    # def update_video_display(self, message=None):
-    #     """更新视频显示区域的内容"""
-    #     if not hasattr(self, 'main_interface_created') or not self.main_interface_created or not self.gui_active:
-    #         return
-            
-    #     if message:
-    #         # 显示文本消息
-    #         self.video_display.configure(text=message, image=None)
-    #         return
-            
-    #     try:
-    #         # 尝试从队列获取帧
-    #         frame = self.frame_update_queue.get_nowait() if not self.frame_update_queue.empty() else None
-            
-    #         if frame is not None:
-    #             # 将Numpy数组转换为PIL图像
-    #             image = PIL.Image.fromarray(frame)
-    #             photo = ctk.CTkImage(light_image=image, size=(self.image_width, self.image_height))
-    #             # photo = PIL.ImageTk.PhotoImage(image=image)
-                
-    #             # 更新视频标签
-    #             self.video_display.configure(image=photo, text="")
-    #             self.video_display.image = photo  # 保持引用，防止垃圾回收
-            
-    #     except Exception as e:
-    #         print(f"更新视频显示错误: {e}")
-    #         self.video_display.configure(text=f"视频显示错误: {e}", image=None)
 
     # --- 动作方法 ---
     def _run_drone_action_in_thread(self, action_func, *args, **kwargs):

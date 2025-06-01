@@ -329,7 +329,75 @@ class HulaDrone:
             self.status["message"] += "，PID已恢复"
         self._notify_status_callbacks()
 
+    def align_target_to_center(self, image, target_position, tolerance=10) -> bool:
+        """
+        Align the target to the center of the view using open-loop adjustments.
 
+        Parameters:
+        - image: The current frame (numpy array).
+        - target_position: The (x, y) coordinates of the target in the image.
+        - tolerance: The acceptable offset (in pixels) for considering the target centered.
+
+        Return:
+        - True if the target is aligned to the center, False if it could not be aligned within the given iterations.
+        """
+        if not self.status["connected"]:
+            self.status["message"] = "未连接，无法调整视野"
+            self._notify_status_callbacks()
+            return
+
+        # Get image dimensions and calculate the center
+        height, width, _ = image.shape
+        laser_x, laser_y = width // 2.000, height // 2.469  # Use south-west corner as the center of the view (0.500, 0.405)
+
+        # Calculate the offset
+        target_x, target_y = target_position
+        offset_x = target_x - laser_x
+        offset_y = target_y - laser_y
+
+        # Check if the target is within the acceptable tolerance
+        if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
+            self.status["message"] = "目标已对准视野中心"
+            self._notify_status_callbacks()
+            # print(self.status["message"])
+            return True
+
+        ## TODO: pixel to angle conversion
+        # Adjust the camera pitch angle based on vertical offset
+        if abs(offset_y) > tolerance:
+            if offset_y > 0:
+                self.instance.Plane_cmd_camera_angle(1, min(abs(offset_y) // 10, 90))  # Move camera down
+            else:
+                self.instance.Plane_cmd_camera_angle(0, min(abs(offset_y) // 10, 90))  # Move camera up
+
+        ## TODO: pixel to angle conversion
+        # Rotate the drone along the z-axis based on horizontal offset
+        if abs(offset_x) > tolerance:
+            if offset_x > 0:
+                self.instance.single_fly_turnright(min(abs(offset_x) // 10, 90))  # Rotate right
+            else:
+                self.instance.single_fly_turnleft(min(abs(offset_x) // 10, 90))  # Rotate left
+
+        # Update the target position (this assumes a method to refresh the image and re-detect the target)
+        # todo:这里需要检测靶子位置的函数
+        image = self.instance.get_image_array()  # Capture a new frame
+        target_position = self.detect_target(image)  # Replace with your target detection logic
+
+        if target_position is None:
+            self.status["message"] = "无法检测到目标，请检查图像质量或靶子位置"
+            self._notify_status_callbacks()
+            return False
+        
+        # Recalculate the offset after adjustments
+        target_x, target_y = target_position
+        offset_x = target_x - laser_x
+        offset_y = target_y - laser_y
+
+        # Check if the target is within the acceptable tolerance
+        if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
+            self.status["message"] = "目标已对准视野中心"
+            self._notify_status_callbacks()
+            return True
 
     def square_flight(self, side_length: float, unit: str = "time",completion_callback=None, step_callback=None):
         """
