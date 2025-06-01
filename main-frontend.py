@@ -81,6 +81,12 @@ class HulaDroneGUI_CTk_Enhanced:
         # --- 创建但隐藏主界面框架 ---
         self.main_interface_frame = ctk.CTkFrame(self.root)
         # 不pack它，直到连接成功
+
+        # # Track all scheduled callbacks and animations
+        # self.scheduled_callbacks = []
+        # self.cleanup_in_progress = False
+
+        self.show_main_interface() # 调试用
         
     def setup_connection_frame(self):
         """创建连接界面"""
@@ -222,9 +228,6 @@ class HulaDroneGUI_CTk_Enhanced:
         
         # 显示主界面
         self.main_interface_frame.pack(fill="both", expand=True, padx=self.padding, pady=self.padding)
-        
-        # 记录状态变更
-        self.connected = True
         
     def setup_display_ui(self):
         """设置显示区域：视频流和飞行路径"""
@@ -449,43 +452,51 @@ class HulaDroneGUI_CTk_Enhanced:
     # --- 飞行路径绘制相关方法 ---
     def update_flight_path(self, x, y, z):
         """更新飞行路径数据并绘制"""
-        if not hasattr(self, 'main_interface_created') or not self.main_interface_created:
+        if (not hasattr(self, 'main_interface_created') or not self.main_interface_created or 
+            self.cleanup_in_progress or not self.gui_active):
             return
             
-        # 添加新的路径点
-        self.flight_path_data['x'].append(x)
-        self.flight_path_data['y'].append(y)
-        self.flight_path_data['z'].append(z)
-        self.flight_path_data['timestamps'].append(time.time())
-        
-        # 更新绘图
-        self.path_line.set_data(self.flight_path_data['x'], self.flight_path_data['y'])
-        self.current_pos.set_data([x], [y])
-        
-        # 动态调整视图范围
-        if len(self.flight_path_data['x']) > 1:
-            x_min = min(self.flight_path_data['x']) - 50
-            x_max = max(self.flight_path_data['x']) + 50
-            y_min = min(self.flight_path_data['y']) - 50
-            y_max = max(self.flight_path_data['y']) + 50
-            
-            # 确保视图有最小范围
-            x_range = x_max - x_min
-            y_range = y_max - y_min
-            if x_range < 200:
-                center_x = (x_min + x_max) / 2
-                x_min = center_x - 100
-                x_max = center_x + 100
-            if y_range < 200:
-                center_y = (y_min + y_max) / 2
-                y_min = center_y - 100
-                y_max = center_y + 100
+        try:
+            # Check if canvas still exists
+            if not hasattr(self, 'canvas') or self.canvas is None:
+                return
                 
-            self.ax.set_xlim([x_min, x_max])
-            self.ax.set_ylim([y_min, y_max])
-        
-        # 刷新画布
-        self.canvas.draw_idle()
+            # Add new path point
+            self.flight_path_data['x'].append(x)
+            self.flight_path_data['y'].append(y)
+            self.flight_path_data['z'].append(z)
+            self.flight_path_data['timestamps'].append(time.time())
+            
+            # Update plot
+            self.path_line.set_data(self.flight_path_data['x'], self.flight_path_data['y'])
+            self.current_pos.set_data([x], [y])
+            
+            # Dynamic view adjustment
+            if len(self.flight_path_data['x']) > 1:
+                x_min = min(self.flight_path_data['x']) - 50
+                x_max = max(self.flight_path_data['x']) + 50
+                y_min = min(self.flight_path_data['y']) - 50
+                y_max = max(self.flight_path_data['y']) + 50
+                
+                # Ensure minimum range
+                x_range = x_max - x_min
+                y_range = y_max - y_min
+                if x_range < 200:
+                    center_x = (x_min + x_max) / 2
+                    x_min, x_max = center_x - 100, center_x + 100
+                if y_range < 200:
+                    center_y = (y_min + y_max) / 2
+                    y_min, y_max = center_y - 100, center_y + 100
+                    
+                self.ax.set_xlim([x_min, x_max])
+                self.ax.set_ylim([y_min, y_max])
+            
+            # Refresh canvas
+            self.canvas.draw_idle()
+            
+        except Exception as e:
+            if not self.cleanup_in_progress:
+                print(f"更新飞行路径时出错: {e}")
     
     def reset_path_view(self):
         """重置飞行路径视图"""
@@ -549,15 +560,19 @@ class HulaDroneGUI_CTk_Enhanced:
     # --- 视频流处理相关方法 ---
     def start_video_stream(self):
         """启动视频流处理"""
-        if not hasattr(self, 'main_interface_created') or not self.main_interface_created:
+        if not hasattr(self, 'main_interface_created') or not self.main_interface_created or self.cleanup_in_progress:
             return
                 
         if not self.video_stream_active:
             self.video_stream_active = True
-            self.video_status_label.configure(text="视频流已开启")
+            if hasattr(self, 'video_status_label') and self.video_status_label.winfo_exists():
+                self.video_status_label.configure(text="视频流已开启")
             
             # 创建动画
             def update_frame(frame_num):
+                if not self.gui_active or not self.video_stream_active or self.cleanup_in_progress:
+                    return [self.video_img]
+                    
                 try:
                     if not self.frame_raw_queue.empty():
                         frame = self.frame_raw_queue.get_nowait()
@@ -569,33 +584,44 @@ class HulaDroneGUI_CTk_Enhanced:
                             self.video_img.set_data(frame)
                     return [self.video_img]
                 except Exception as e:
-                    print(f"视频帧更新错误: {e}")
+                    if not self.cleanup_in_progress:
+                        print(f"视频帧更新错误: {e}")
                     return [self.video_img]
             
-            # 创建动画对象
-            self.video_animation = FuncAnimation(
-                self.video_fig, 
-                update_frame, 
-                interval=30,  # 更新间隔(毫秒)
-                blit=True
-            )
-            
-            # 绘制初始画布
-            self.video_canvas.draw()
+            try:
+                self.video_animation = FuncAnimation(
+                    self.video_fig, 
+                    update_frame, 
+                    interval=50,
+                    blit=True,
+                    cache_frame_data=False
+                )
+                self.video_canvas.draw()
+            except Exception as e:
+                print(f"创建视频动画时出错: {e}")
+                self.video_stream_active = False
     
     def stop_video_stream(self):
         """停止视频流处理"""
-        if hasattr(self, 'video_animation') and self.video_animation is not None:
-            self.video_animation.event_source.stop()
-            self.video_animation = None
-        
         self.video_stream_active = False
-        self.video_status_label.configure(text="视频流已关闭")
         
-        # 显示黑屏
-        black_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
-        self.video_img.set_data(black_frame)
-        self.video_canvas.draw()
+        if hasattr(self, 'video_animation') and self.video_animation is not None:
+            try:
+                self.video_animation.event_source.stop()
+                self.video_animation = None
+            except:
+                pass
+        
+        try:
+            if hasattr(self, 'video_status_label') and self.video_status_label.winfo_exists():
+                self.video_status_label.configure(text="视频流已关闭")
+            
+            if hasattr(self, 'video_img') and hasattr(self, 'video_canvas'):
+                black_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
+                self.video_img.set_data(black_frame)
+                self.video_canvas.draw()
+        except:
+            pass
 
     # --- 动作方法 ---
     def _run_drone_action_in_thread(self, action_func, *args, **kwargs):
@@ -685,105 +711,188 @@ class HulaDroneGUI_CTk_Enhanced:
         return colors.get(color_name.lower(), ("#000000", "#FFFFFF"))[1 if is_dark_mode else 0]
 
     def update_status_display_from_callback(self, drone_status: dict):
-        if not self.gui_active: return
-        after_id = self.root.after(0, self._do_update_ui, drone_status)
-        # print(f"UI 更新计划 ID: {after_id}")
+        if not self.gui_active or self.cleanup_in_progress: 
+            return
+        # Use tracked callback
+        self._schedule_callback(0, self._do_update_ui, drone_status)
+
 
     def _do_update_ui(self, drone_status: dict):
-        if not self.gui_active: return
+        if not self.gui_active or self.cleanup_in_progress: 
+            return
 
-        msg = drone_status.get("message", "Unknown Status")
-        connected = drone_status.get("connected", False)
-        current_status_text = f"状态: {msg}"
+        try:
+            msg = drone_status.get("message", "Unknown Status")
+            self.connected = drone_status.get("connected", False)
+            current_status_text = f"状态: {msg}"
 
-        # 在首屏更新状态
-        if connected:
-            self.status_label.configure(text=current_status_text, text_color=self._get_status_color("green"))
-            self.connect_button.configure(text="已连接", state="disabled", fg_color=self._get_status_color("grey"))
-            
-            # 如果是首次连接成功，切换到主界面
-            if not self.connected:
-                self.root.after(1000, self.show_main_interface)  # 延迟切换，让用户看到连接成功状态
-        else:
-            if "connecting" in msg.lower():
-                self.status_label.configure(text=current_status_text, text_color=self._get_status_color("orange"))
-                self.connect_button.configure(text="连接中...", state="disabled")
-            elif "failed" in msg.lower() or "error" in msg.lower() or "disconnected" in msg.lower():
-                self.status_label.configure(text=current_status_text, text_color=self._get_status_color("red"))
-                self.connect_button.configure(text="连接", state="normal")
-            else:  # e.g., "Awaiting Connection", "Exited Safely"
-                self.status_label.configure(text=current_status_text, text_color=self._get_status_color("grey"))
-                self.connect_button.configure(text="连接", state="normal")
-
-        # 更新电池状态、位置和航向信息
-        battery = drone_status.get("battery_level", "Unknown")
-        battery_text = f"电池: {battery}%" if isinstance(battery, (int, float)) else f"电池: {battery}"
-        self.battery_label.configure(text=battery_text, text_color=self._get_status_color("blue_text"))
-        
-        loc = drone_status.get("location", ["N/A", "N/A"])
-        height = drone_status.get("height", "N/A")
-        pos_str = f"位置: X:{loc[0]} Y:{loc[1]} Z:{height}"
-        self.position_label.configure(text=pos_str, text_color=self._get_status_color("blue_text"))
-        
-        heading = drone_status.get("heading", "N/A")
-        heading_text = f"航向: {heading:.1f}°" if isinstance(heading, float) else f"航向: {heading}"
-        self.heading_label.configure(text=heading_text, text_color=self._get_status_color("blue_text"))
-        
-        # 如果主界面已经显示，同时更新主界面的状态信息
-        if hasattr(self, 'main_interface_created') and self.main_interface_created:
-            self.main_status_label.configure(text=current_status_text, text_color=self._get_status_color("green" if connected else "grey"))
-            self.main_battery_label.configure(text=battery_text, text_color=self._get_status_color("blue_text"))
-            self.main_position_label.configure(text=pos_str, text_color=self._get_status_color("blue_text"))
-            self.main_heading_label.configure(text=heading_text, text_color=self._get_status_color("blue_text"))
-            
-            # 如果有有效的位置数据，更新飞行路径
-            if loc[0] != "N/A" and loc[1] != "N/A" and height != "N/A":
-                # 确保数据是数值类型
-                try:
-                    x = float(loc[0])
-                    y = float(loc[1])
-                    z = float(height)
-                    self.update_flight_path(x, y, z)
+            # Update connection interface status (if still visible)
+            if hasattr(self, 'status_label') and self.status_label.winfo_exists():
+                if self.connected:
+                    self.status_label.configure(text=current_status_text, text_color=self._get_status_color("green"))
+                    self.connect_button.configure(text="已连接", state="disabled", fg_color=self._get_status_color("grey"))
                     
-                    # 对于视频帧更新，需要检查队列
-                    # 此处更新过慢
-                    # if not self.frame_update_queue.empty():
-                    #     self.update_video_display()
-                except (ValueError, TypeError):
-                    pass  # 忽略无法转换为数值的数据
+                    # Switch to main interface if first connection and not already created
+                    if not hasattr(self, 'main_interface_shown') or not self.main_interface_shown:
+                        self.main_interface_shown = True
+                        self._schedule_callback(500, self.show_main_interface)
+                else:
+                    if "connecting" in msg.lower():
+                        self.status_label.configure(text=current_status_text, text_color=self._get_status_color("orange"))
+                    elif "failed" in msg.lower() or "error" in msg.lower() or "disconnected" in msg.lower():
+                        self.status_label.configure(text=current_status_text, text_color=self._get_status_color("red"))
+                    else:
+                        self.status_label.configure(text=current_status_text, text_color=self._get_status_color("grey"))
+
+            # Update other status info safely
+            battery = drone_status.get("battery_level", "Unknown")
+            battery_text = f"电池: {battery}%" if isinstance(battery, (int, float)) else f"电池: {battery}"
+            
+            loc = drone_status.get("location", ["N/A", "N/A"])
+            height = drone_status.get("height", "N/A")
+            pos_str = f"位置: X:{loc[0]} Y:{loc[1]} Z:{height}"
+            
+            heading = drone_status.get("heading", "N/A")
+            heading_text = f"航向: {heading:.1f}°" if isinstance(heading, float) else f"航向: {heading}"
+
+            # Update connection interface labels if they exist
+            if hasattr(self, 'battery_label') and self.battery_label.winfo_exists():
+                self.battery_label.configure(text=battery_text, text_color=self._get_status_color("blue_text"))
+            if hasattr(self, 'position_label') and self.position_label.winfo_exists():
+                self.position_label.configure(text=pos_str, text_color=self._get_status_color("blue_text"))
+            if hasattr(self, 'heading_label') and self.heading_label.winfo_exists():
+                self.heading_label.configure(text=heading_text, text_color=self._get_status_color("blue_text"))
+            
+            # Update main interface labels if they exist
+            if hasattr(self, 'main_interface_created') and self.main_interface_created:
+                if hasattr(self, 'main_status_label') and self.main_status_label.winfo_exists():
+                    self.main_status_label.configure(text=current_status_text, text_color=self._get_status_color("green" if self.connected else "grey"))
+                if hasattr(self, 'main_battery_label') and self.main_battery_label.winfo_exists():
+                    self.main_battery_label.configure(text=battery_text, text_color=self._get_status_color("blue_text"))
+                if hasattr(self, 'main_position_label') and self.main_position_label.winfo_exists():
+                    self.main_position_label.configure(text=pos_str, text_color=self._get_status_color("blue_text"))
+                if hasattr(self, 'main_heading_label') and self.main_heading_label.winfo_exists():
+                    self.main_heading_label.configure(text=heading_text, text_color=self._get_status_color("blue_text"))
+                
+                # Update flight path if we have valid position data
+                if loc[0] != "N/A" and loc[1] != "N/A" and height != "N/A":
+                    try:
+                        x, y, z = float(loc[0]), float(loc[1]), float(height)
+                        self.update_flight_path(x, y, z)
+                    except (ValueError, TypeError):
+                        pass
+
+        except Exception as e:
+            print(f"状态更新时发生错误: {e}")
+
+    def _schedule_callback(self, delay, callback, *args):
+        """Helper method to track scheduled callbacks for proper cleanup"""
+        if self.cleanup_in_progress or not self.gui_active:
+            return None
+        try:
+            callback_id = self.root.after(delay, callback, *args)
+            self.scheduled_callbacks.append(callback_id)
+            return callback_id
+        except:
+            return None
+
+    def _cancel_all_callbacks(self):
+        """Cancel all tracked callbacks safely"""
+        for callback_id in self.scheduled_callbacks:
+            try:
+                if callback_id:
+                    self.root.after_cancel(callback_id)
+            except:
+                pass
+        self.scheduled_callbacks.clear()
+
 
     def on_closing_window(self):
         if messagebox.askokcancel("退出确认", "您确定要退出 Hula Drone 控制界面吗？\n无人机将尝试安全着陆并保存数据。"):
+            print("开始关闭应用程序...")
+            
+            # Set cleanup flag immediately
+            self.cleanup_in_progress = True
             self.gui_active = False
-            self.video_stream_active = False  # 停止视频处理
+            self.video_stream_active = False
             
-            if hasattr(self, 'main_interface_created') and self.main_interface_created:
-                self.main_status_label.configure(text="状态: 正在退出，请稍候...", text_color=self._get_status_color("orange"))
-            else:
-                self.status_label.configure(text="状态: 正在退出，请稍候...", text_color=self._get_status_color("orange"))
+            # Stop video stream first
+            self.stop_video_stream()
             
-            # 停止视频动画
+            # Cancel all scheduled callbacks
+            self._cancel_all_callbacks()
+            
+            # Update status safely
+            try:
+                if hasattr(self, 'main_interface_created') and self.main_interface_created:
+                    if hasattr(self, 'main_status_label') and self.main_status_label.winfo_exists():
+                        self.main_status_label.configure(text="状态: 正在退出，请稍候...", text_color=self._get_status_color("orange"))
+                else:
+                    if hasattr(self, 'status_label') and self.status_label.winfo_exists():
+                        self.status_label.configure(text="状态: 正在退出，请稍候...", text_color=self._get_status_color("orange"))
+            except:
+                pass
+
+            # Force update the display
+            try:
+                self.root.update_idletasks()
+            except:
+                pass
+            
+            # Unregister drone callback safely
+            try:
+                if hasattr(self.drone, 'unregister_status_callback'):
+                    self.drone.unregister_status_callback(self.update_status_display_from_callback)
+            except:
+                pass
+
+            # Start drone shutdown in background
+            exit_thread = threading.Thread(target=self.drone.graceful_exit, daemon=True)
+            exit_thread.start()
+            
+            # Schedule window destruction with a delay
+            self._schedule_callback(3000, self._destroy_root_safely)
+
+    def _destroy_root_safely(self):
+        """Safely destroy the root window and clean up resources"""
+        if not self.cleanup_in_progress:
+            self.cleanup_in_progress = True
+        
+        print("正在安全关闭图形界面...")
+        
+        try:
+            # Cancel any remaining callbacks
+            self._cancel_all_callbacks()
+            
+            # Stop matplotlib animations
             if hasattr(self, 'video_animation') and self.video_animation is not None:
                 self.video_animation.event_source.stop()
                 self.video_animation = None
-
-            self.root.update_idletasks()
-            self.drone.unregister_status_callback(self.update_status_display_from_callback)
-
-            exit_thread = threading.Thread(target=self.drone.graceful_exit, daemon=True)
-            exit_thread.start()
-            self.root.after(5000, self._destroy_root_safely)
-
-    def _destroy_root_safely(self):
-        try:
-            if self.root: self.root.destroy()
+                
+            # Close matplotlib figures
+            if hasattr(self, 'video_fig'):
+                plt.close(self.video_fig)
+            if hasattr(self, 'fig'):
+                plt.close(self.fig)
+                
+            # Clear references to prevent callback issues
+            if hasattr(self, 'video_canvas'):
+                self.video_canvas = None
+            if hasattr(self, 'canvas'):
+                self.canvas = None
+                
+            # Destroy the root window
+            if self.root and self.root.winfo_exists():
+                self.root.quit()       # Exit the mainloop
+                self.root.destroy()    # Destroy the window
+                
         except Exception as e: 
-            print(f"尝试关闭图形化界面时发生错误：{e}")
+            print(f"关闭图形界面时发生错误: {e}")
+            # Force exit if normal cleanup fails
+            import sys
+            sys.exit(0)
         finally:
-            print("图形化界面已安全关闭。")
-
-    def run_gui(self):
-        self.root.mainloop()
+            print("图形界面已安全关闭。")
 
 # Main program entry point
 if __name__ == "__main__":

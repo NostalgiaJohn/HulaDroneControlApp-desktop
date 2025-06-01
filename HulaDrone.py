@@ -14,7 +14,7 @@ class HulaDrone:
     def __init__(self):
         self.instance: pyhula.UserApi = pyhula.UserApi()
         self.status: dict = {
-            "connected": False,
+            "connected": True,
             "takeoff": False,
             "cam_stream": False,
 
