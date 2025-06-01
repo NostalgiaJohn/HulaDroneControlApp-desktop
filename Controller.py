@@ -234,15 +234,16 @@ class Controller:
         if not isinstance(new_target_local, list) or len(new_target_local) != 3 or not all(isinstance(x, (int, float)) for x in new_target_local):
             print("Invalid target location: must be [dx, dy, dz]")
             return False
+        
+        current_target_location = self.get_target_location()  # Get current target location
         with self._lock:
-            current_target_location = self.get_target_location()  # Get current target location
             current_heading = self.instance.get_yaw()[0] - self.heading_ini # Get current heading (substracted by initial heading offset)
             if not current_target_location or len(current_target_location) != 3:
                 print("Failed to get current coordinates")
                 return False
             # Convert local to global coordinates
             dx_global, dy_global = self.__local_to_global(new_target_local[0], new_target_local[1], current_heading)
-            new_target_global = [current_target_location[0] + dx_global, current_target_location[1] + dy_global, current_target_location[2] + new_target_local[2]]
+            new_target_global = [int(current_target_location[0] + dx_global), int(current_target_location[1] + dy_global), int(current_target_location[2] + new_target_local[2])]
             self.target_location = new_target_global.copy()
             print(f"Target location updated to: {self.target_location}")
             return True
@@ -290,10 +291,10 @@ class Controller:
             self.i = self.i + 1
 
             ## Control section
+            current_location = self.instance.get_coordinate()               # Get current location
+            current_heading = self.instance.get_yaw()[0] - self.heading_ini # Get current heading (substracted by initial heading offset)
 
             with self._lock:                            # Acquire target location safely
-                current_location = self.instance.get_coordinate()               # Get current location
-                current_heading = self.instance.get_yaw()[0] - self.heading_ini # Get current heading (substracted by initial heading offset)
                 target_location = self.target_location
 
             # Acquire x, y,z error and transform x, y error to local frame using current heading

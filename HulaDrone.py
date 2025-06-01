@@ -347,8 +347,30 @@ class HulaDrone:
     def set_camera_absolute_pitch(self, angle):
         pass
 
-    def set_camera_relative_pitch(self, angle):
-        pass 
+    def set_camera_relative_pitch(self, angle) -> bool:
+        """
+        设置相对俯仰角
+
+        Parameters:
+        - angle: 相对角度，负值向下，正值向上
+
+        Return:
+        - True if the command was sent successfully, False otherwise.
+        """
+        if not self.status["connected"]:
+            self.status["message"] = "未连接，无法设置相对俯仰角"
+            self._notify_status_callbacks()
+            return False
+
+        if angle >= 0: # 相机俯仰角向上调整
+            self.instance.Plane_cmd_camera_angle(3, angle)
+            self.status["message"] = f"相机俯仰角向上调整 {angle}°"
+        else: # angle < 0, 相机俯仰角向下调整
+            self.instance.Plane_cmd_camera_angle(2, abs(angle))
+            self.status["message"] = f"相机俯仰角向下调整 {abs(angle)}°"
+        # 更新状态并通知回调
+        self._notify_status_callbacks()
+        return True
 
     def align_target_to_center(self, image, target_position, tolerance=10) -> bool:
         """

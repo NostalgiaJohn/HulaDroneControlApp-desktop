@@ -849,7 +849,7 @@ class HulaDroneGUI_CTk_Enhanced:
                 self.video_animation = FuncAnimation(
                     self.video_fig, 
                     update_frame, 
-                    interval=50,
+                    interval=100,
                     blit=True,
                     cache_frame_data=False
                 )
@@ -935,7 +935,7 @@ class HulaDroneGUI_CTk_Enhanced:
         try:
             step = int(self.camera_step_entry.get())
             self.main_status_label.configure(text=f"状态: 相机向上调整 {step}°...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.set_camera_relative_pitch, -step)  # 负值表示向上
+            self._run_drone_action_in_thread(self.drone.set_camera_relative_pitch, step)  # 正值表示向上
         except ValueError:
             messagebox.showerror("输入错误", "相机步长必须为有效整数")
     
@@ -943,7 +943,7 @@ class HulaDroneGUI_CTk_Enhanced:
         try:
             step = int(self.camera_step_entry.get())
             self.main_status_label.configure(text=f"状态: 相机向下调整 {step}°...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.set_camera_relative_pitch, step)  # 正值表示向下
+            self._run_drone_action_in_thread(self.drone.set_camera_relative_pitch, -step)  # 负值表示向下
         except ValueError:
             messagebox.showerror("输入错误", "相机步长必须为有效整数")
     
@@ -1250,8 +1250,8 @@ class HulaDroneGUI_CTk_Enhanced:
             print("图形界面已安全关闭。")
     
     def run_gui(self):
-        self.root.mainloop()
         self.gui_active = True
+        self.root.mainloop()
 
 # Main program entry point
 if __name__ == "__main__":
