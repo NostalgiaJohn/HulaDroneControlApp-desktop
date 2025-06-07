@@ -9,6 +9,7 @@ import json # 用于 Controller 中的数据转储
 
 # 假设 Controller.py 和 PidCalculator 在同一目录下或可被导入
 from Controller import Controller, PidCalculator
+from TargetDetectorAruco import TargetDetectorAruco # 假设有一个目标检测模块
 
 class HulaDrone:
     def __init__(self):
@@ -17,6 +18,7 @@ class HulaDrone:
             "connected": False,
             "takeoff": False,
             "cam_stream": False,
+            "aiming": False, # 是否正在对准靶子
 
             "battery_level": "未知",
             "heading": "未知",
@@ -25,6 +27,7 @@ class HulaDrone:
             "message": "等待连接..." # 可以用于显示一般信息
         }
         self.controller: Controller = None
+        self.target_detector: TargetDetectorAruco = TargetDetectorAruco() # 初始化目标检测器
         self._initial_heading_offset: int = 0
 
         self._query_thread = threading.Thread(target=self._query_loop, daemon=True)
@@ -371,76 +374,95 @@ class HulaDrone:
         # 更新状态并通知回调
         self._notify_status_callbacks()
         return True
-
-    def align_target_to_center(self, image, target_position, tolerance=10) -> bool:
+    
+    def aim_target(self):
         """
-        Align the target to the center of the view using open-loop adjustments.
-
-        Parameters:
-        - image: The current frame (numpy array).
-        - target_position: The (x, y) coordinates of the target in the image.
-        - tolerance: The acceptable offset (in pixels) for considering the target centered.
-
-        Return:
-        - True if the target is aligned to the center, False if it could not be aligned within the given iterations.
+        对准目标靶子，使用目标检测器检测靶子位置并调整无人机航向和相机角度。
         """
         if not self.status["connected"]:
-            self.status["message"] = "未连接，无法调整视野"
+            self.status["message"] = "未连接，无法对准目标"
             self._notify_status_callbacks()
             return
 
-        # Get image dimensions and calculate the center
-        height, width, _ = image.shape
-        laser_x, laser_y = width // 2.000, height // 2.469  # Use south-west corner as the center of the view (0.500, 0.405)
+        # if not self.controller or not self.controller.running:
+        #     self.status["message"] = "控制服务未运行，请先起飞或启动服务"
+        #     self._notify_status_callbacks()
+        #     return
 
-        # Calculate the offset
-        target_x, target_y = target_position
-        offset_x = target_x - laser_x
-        offset_y = target_y - laser_y
+        while self.status["aiming"]:
+            self.set_camera_relative_pitch(int(self.target_detector.current_offset_pitch)) # 调整相机俯仰角
+            self.set_rotation(int(self.target_detector.current_offset_yaw)) # 调整无人机航向
+        return
+    
+    # def align_target_to_center(self, image, target_position, tolerance=10) -> bool:
+    #     """
+    #     Align the target to the center of the view using open-loop adjustments.
 
-        # Check if the target is within the acceptable tolerance
-        if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
-            self.status["message"] = "目标已对准视野中心"
-            self._notify_status_callbacks()
-            # print(self.status["message"])
-            return True
+    #     Parameters:
+    #     - image: The current frame (numpy array).
+    #     - target_position: The (x, y) coordinates of the target in the image.
+    #     - tolerance: The acceptable offset (in pixels) for considering the target centered.
 
-        ## TODO: pixel to angle conversion
-        # Adjust the camera pitch angle based on vertical offset
-        if abs(offset_y) > tolerance:
-            if offset_y > 0:
-                self.instance.Plane_cmd_camera_angle(1, min(abs(offset_y) // 10, 90))  # Move camera down
-            else:
-                self.instance.Plane_cmd_camera_angle(0, min(abs(offset_y) // 10, 90))  # Move camera up
+    #     Return:
+    #     - True if the target is aligned to the center, False if it could not be aligned within the given iterations.
+    #     """
+    #     if not self.status["connected"]:
+    #         self.status["message"] = "未连接，无法调整视野"
+    #         self._notify_status_callbacks()
+    #         return
 
-        ## TODO: pixel to angle conversion
-        # Rotate the drone along the z-axis based on horizontal offset
-        if abs(offset_x) > tolerance:
-            if offset_x > 0:
-                self.instance.single_fly_turnright(min(abs(offset_x) // 10, 90))  # Rotate right
-            else:
-                self.instance.single_fly_turnleft(min(abs(offset_x) // 10, 90))  # Rotate left
+    #     # Get image dimensions and calculate the center
+    #     height, width, _ = image.shape
+    #     laser_x, laser_y = width // 2.000, height // 2.469  # Use south-west corner as the center of the view (0.500, 0.405)
 
-        # Update the target position (this assumes a method to refresh the image and re-detect the target)
-        # todo:这里需要检测靶子位置的函数
-        image = self.instance.get_image_array()  # Capture a new frame
-        target_position = self.detect_target(image)  # Replace with your target detection logic
+    #     # Calculate the offset
+    #     target_x, target_y = target_position
+    #     offset_x = target_x - laser_x
+    #     offset_y = target_y - laser_y
 
-        if target_position is None:
-            self.status["message"] = "无法检测到目标，请检查图像质量或靶子位置"
-            self._notify_status_callbacks()
-            return False
+    #     # Check if the target is within the acceptable tolerance
+    #     if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
+    #         self.status["message"] = "目标已对准视野中心"
+    #         self._notify_status_callbacks()
+    #         # print(self.status["message"])
+    #         return True
+
+    #     ## TODO: pixel to angle conversion
+    #     # Adjust the camera pitch angle based on vertical offset
+    #     if abs(offset_y) > tolerance:
+    #         if offset_y > 0:
+    #             self.instance.Plane_cmd_camera_angle(1, min(abs(offset_y) // 10, 90))  # Move camera down
+    #         else:
+    #             self.instance.Plane_cmd_camera_angle(0, min(abs(offset_y) // 10, 90))  # Move camera up
+
+    #     ## TODO: pixel to angle conversion
+    #     # Rotate the drone along the z-axis based on horizontal offset
+    #     if abs(offset_x) > tolerance:
+    #         if offset_x > 0:
+    #             self.instance.single_fly_turnright(min(abs(offset_x) // 10, 90))  # Rotate right
+    #         else:
+    #             self.instance.single_fly_turnleft(min(abs(offset_x) // 10, 90))  # Rotate left
+
+    #     # Update the target position (this assumes a method to refresh the image and re-detect the target)
+    #     # todo:这里需要检测靶子位置的函数
+    #     image = self.instance.get_image_array()  # Capture a new frame
+    #     target_position = self.detect_target(image)  # Replace with your target detection logic
+
+    #     if target_position is None:
+    #         self.status["message"] = "无法检测到目标，请检查图像质量或靶子位置"
+    #         self._notify_status_callbacks()
+    #         return False
         
-        # Recalculate the offset after adjustments
-        target_x, target_y = target_position
-        offset_x = target_x - laser_x
-        offset_y = target_y - laser_y
+    #     # Recalculate the offset after adjustments
+    #     target_x, target_y = target_position
+    #     offset_x = target_x - laser_x
+    #     offset_y = target_y - laser_y
 
-        # Check if the target is within the acceptable tolerance
-        if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
-            self.status["message"] = "目标已对准视野中心"
-            self._notify_status_callbacks()
-            return True
+    #     # Check if the target is within the acceptable tolerance
+    #     if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
+    #         self.status["message"] = "目标已对准视野中心"
+    #         self._notify_status_callbacks()
+    #         return True
 
     def square_flight(self, side_length: float, unit: str = "time",completion_callback=None, step_callback=None):
         """
@@ -665,7 +687,7 @@ class HulaDrone:
                     break
             else:
                 time.sleep(1) # 等待连接
-            time.sleep(0.1) # 控制捕获频率
+            time.sleep(1/30) # 控制捕获频率
 
     def capture_image_stream(self, queue: queue.Queue): # 改名以示区分，此方法仅打开流
         if not self.status["connected"]:

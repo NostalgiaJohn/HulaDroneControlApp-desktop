@@ -49,8 +49,8 @@ class HulaDroneGUI_CTk_Enhanced:
         self.corner_radius = 8
         self.padding = 10
         self.button_height = 35
-        self.image_width = 1280//3
-        self.image_height = 720//3
+        self.image_width = 1280
+        self.image_height = 720
 
         # --- 初始化无人机实例和状态 ---
         self.drone = HulaDrone()
@@ -68,6 +68,7 @@ class HulaDroneGUI_CTk_Enhanced:
             'timestamps': []
         }
         self.video_stream_active = False
+        self.video_stream_show_target_frame = False # 是否在视频流中显示打靶目标框
         self.frame_raw_queue = queue.Queue(maxsize=1)  # 只保存最新帧
         self.frame_update_queue = queue.Queue(maxsize=1)  # 只保存最新帧
         
@@ -85,6 +86,8 @@ class HulaDroneGUI_CTk_Enhanced:
         # # Track all scheduled callbacks and animations
         self.scheduled_callbacks = []
         self.cleanup_in_progress = False
+
+        # self.show_main_interface()  # TODO：测试用
         
     def setup_connection_frame(self):
         """创建连接界面"""
@@ -838,7 +841,19 @@ class HulaDroneGUI_CTk_Enhanced:
                             frame = cv2.resize(frame, (self.image_width, self.image_height))
                             # cv2.imwrite("temp_frame.jpg", frame)  # 保存临时帧用于调试
                             # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            self.video_img.set_data(frame)
+                            if not self.video_stream_show_target_frame:
+                                self.video_img.set_data(frame)
+                            else:
+                                # 显示目标框架
+                                target_frame = self.drone.target_detector.get_target_frame(frame)
+                                if target_frame is not None:
+                                    target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))
+                                    # cv2.imwrite("temp_target.jpg", target_frame)  # 保存临时目标帧用于调试
+                                    self.video_img.set_data(target_frame)
+                                else:
+                                    # 如果没有目标帧，使用原始帧
+                                    print("未获取到目标帧，使用原始帧")
+                                    self.video_img.set_data(frame)
                     return [self.video_img]
                 except Exception as e:
                     if not self.cleanup_in_progress:
@@ -849,7 +864,7 @@ class HulaDroneGUI_CTk_Enhanced:
                 self.video_animation = FuncAnimation(
                     self.video_fig, 
                     update_frame, 
-                    interval=100,
+                    interval=33,
                     blit=True,
                     cache_frame_data=False
                 )
@@ -1021,10 +1036,21 @@ class HulaDroneGUI_CTk_Enhanced:
 
     ## --- 目标检测与瞄准 ---
     def action_detect(self):
-        pass
+        if not self.video_stream_show_target_frame:
+            self.main_status_label.configure(text="状态: 正在进行目标检测...", text_color=self._get_status_color("orange"))
+            self.video_stream_show_target_frame = True
+        else:
+            self.main_status_label.configure(text="状态: 已停止目标检测", text_color=self._get_status_color("orange"))
+            self.video_stream_show_target_frame = False
 
     def action_aim_target(self):
-        pass
+        if not self.drone.status["aiming"]:
+            self.main_status_label.configure(text="状态: 正在瞄准目标...", text_color=self._get_status_color("orange"))
+            self.drone.status["aiming"] = True
+            self._run_drone_action_in_thread(self.drone.aim_target)
+        else:
+            self.main_status_label.configure(text="状态: 已停止瞄准目标", text_color=self._get_status_color("orange"))
+            self.drone.status["aiming"] = False
 
     ## --- 自动飞行相关方法 ---
     def action_square_flight(self):
