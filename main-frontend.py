@@ -69,6 +69,7 @@ class HulaDroneGUI_CTk_Enhanced:
         }
         self.video_stream_active = False
         self.video_stream_show_target_frame = False # 是否在视频流中显示打靶目标框
+        self.laser_aim_target = False # 激光是否瞄准目标
         self.frame_raw_queue = queue.Queue(maxsize=1)  # 只保存最新帧
         self.frame_update_queue = queue.Queue(maxsize=1)  # 只保存最新帧
         
@@ -179,7 +180,7 @@ class HulaDroneGUI_CTk_Enhanced:
         self.main_interface_created = True
         
         # 调整窗口大小以适应完整界面
-        self.root.geometry("1200x850")
+        self.root.geometry("1200x900")
         
         # 主界面采用网格布局
         self.main_interface_frame.columnconfigure(0, weight=3)  # 控制区域
@@ -212,8 +213,8 @@ class HulaDroneGUI_CTk_Enhanced:
         # 连接状态信息复制到新位置
         self.setup_connection_info_ui(self.control_frame)
         self.setup_flight_control_ui(self.control_frame)
-        self.setup_square_flight_ui(self.control_frame)
         self.setup_laser_video_ui(self.control_frame)
+        self.setup_auto_flight_ui(self.control_frame)
         
         # 2. 显示区域
         self.setup_display_ui()
@@ -424,7 +425,7 @@ class HulaDroneGUI_CTk_Enhanced:
             height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
         ).grid(row=4, column=0, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
         ctk.CTkButton(
-            frame, text="瞄准", command=self.action_aim_target,
+            frame, text="瞄准", command=self.action_toggle_aim_target,
             height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
         ).grid(row=4, column=2, columnspan=2, padx=(self.padding, 5), pady=self.padding, sticky="ew")
 
@@ -673,28 +674,9 @@ class HulaDroneGUI_CTk_Enhanced:
             corner_radius=self.corner_radius
         ).grid(row=1, column=2, padx=2, pady=2)
 
-    ## --- 正方形飞行 UI ---
-    def setup_square_flight_ui(self, parent_container):
-        frame = self._create_section_frame(parent_container, "自动飞行: 正方形", 2)
-        frame.grid_columnconfigure(3, weight=1) # Button expands
-
-        ctk.CTkLabel(frame, text="边长:", font=self.font_main).grid(row=0, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
-        self.side_length_entry = ctk.CTkEntry(frame, width=80, font=self.font_main, corner_radius=self.corner_radius); self.side_length_entry.insert(0, "200")
-        self.side_length_entry.grid(row=0, column=1, padx=5, pady=self.padding)
-
-        # Radio buttons in their own sub-frame for better grouping
-        radio_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        radio_frame.grid(row=0, column=2, padx=self.padding, pady=self.padding/2, sticky="ew")
-
-        self.unit_var = tk.StringVar(value="distance")
-        ctk.CTkRadioButton(radio_frame, text="时间 (s)", variable=self.unit_var, value="time", font=self.font_main, corner_radius=self.corner_radius).pack(side="left", padx=(0,10))
-        ctk.CTkRadioButton(radio_frame, text="距离 (cm)", variable=self.unit_var, value="distance", font=self.font_main, corner_radius=self.corner_radius).pack(side="left")
-
-        ctk.CTkButton(frame, text="飞行正方形路径", command=self.action_square_flight, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=0, column=3, padx=(0, self.padding), pady=self.padding, sticky="ew")
-
     ## --- 激光与视频流 UI ---
     def setup_laser_video_ui(self, parent_container):
-        frame = self._create_section_frame(parent_container, "功能控制", 3)
+        frame = self._create_section_frame(parent_container, "功能控制", 2)
         frame.grid_columnconfigure(1, weight=1) # Stream button expands
 
         self.laser_var = tk.BooleanVar(value=False)
@@ -708,7 +690,34 @@ class HulaDroneGUI_CTk_Enhanced:
             frame, text="开启视频流", command=self.action_capture_image_stream,
             height=self.button_height, font=self.font_main, corner_radius=self.corner_radius
         ).grid(row=0, column=1, padx=(0, self.padding), pady=self.padding, sticky="ew")
-    
+
+    ## --- 自动飞行 UI ---
+    def setup_auto_flight_ui(self, parent_container):
+        frame = self._create_section_frame(parent_container, "自动飞行", 3)
+        frame.grid_columnconfigure(2, weight=1) # Button expands
+
+        # 四方飞行
+        ctk.CTkLabel(frame, text="边长:", font=self.font_main).grid(row=0, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
+        self.side_length_entry = ctk.CTkEntry(frame, width=80, font=self.font_main, corner_radius=self.corner_radius); self.side_length_entry.insert(0, "200")
+        self.side_length_entry.grid(row=0, column=1, padx=5, pady=self.padding)
+
+        # Radio buttons in their own sub-frame for better grouping
+        # radio_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        # radio_frame.grid(row=0, column=2, padx=self.padding, pady=self.padding/2, sticky="ew")
+
+        self.unit_var = tk.StringVar(value="distance")
+        # ctk.CTkRadioButton(radio_frame, text="时间 (s)", variable=self.unit_var, value="time", font=self.font_main, corner_radius=self.corner_radius).pack(side="left", padx=(0,10))
+        # ctk.CTkRadioButton(radio_frame, text="距离 (cm)", variable=self.unit_var, value="distance", font=self.font_main, corner_radius=self.corner_radius).pack(side="left")
+
+        ctk.CTkButton(frame, text="飞行正方形路径", command=self.action_square_flight, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=0, column=2, padx=(0, self.padding), pady=self.padding, sticky="ew")
+
+        # 瞄准飞行
+        ctk.CTkLabel(frame, text="瞄准时间：", font=self.font_main).grid(row=1, column=0, padx=(self.padding,0), pady=self.padding, sticky="e")
+        self.aim_time_entry = ctk.CTkEntry(frame, width=80, font=self.font_main, corner_radius=self.corner_radius); self.aim_time_entry.insert(0, "10")
+        self.aim_time_entry.grid(row=1, column=1, padx=5, pady=self.padding)
+
+        ctk.CTkButton(frame, text="飞行正方形路径（瞄准）", command=self.action_square_aim_flight, height=self.button_height, font=self.font_main, corner_radius=self.corner_radius).grid(row=1, column=2, padx=(0, self.padding), pady=self.padding, sticky="ew")
+
     # --- 飞行路径绘制相关方法 ---
     def update_flight_path(self, x, y, z):
         """更新飞行路径数据并绘制"""
@@ -830,7 +839,7 @@ class HulaDroneGUI_CTk_Enhanced:
             
             # 创建动画
             def update_frame(frame_num):
-                if not self.gui_active or not self.video_stream_active or self.cleanup_in_progress:
+                if not self.drone.status["cam_stream"] or not self.gui_active or not self.video_stream_active or self.cleanup_in_progress:
                     return [self.video_img]
                     
                 try:
@@ -864,7 +873,7 @@ class HulaDroneGUI_CTk_Enhanced:
                 self.video_animation = FuncAnimation(
                     self.video_fig, 
                     update_frame, 
-                    interval=33,
+                    interval=100,
                     blit=True,
                     cache_frame_data=False
                 )
@@ -1038,19 +1047,22 @@ class HulaDroneGUI_CTk_Enhanced:
     def action_detect(self):
         if not self.video_stream_show_target_frame:
             self.main_status_label.configure(text="状态: 正在进行目标检测...", text_color=self._get_status_color("orange"))
-            self.video_stream_show_target_frame = True
+            self.video_stream_show_target_frame = True # 与 self.start_video_stream 方法有关
         else:
             self.main_status_label.configure(text="状态: 已停止目标检测", text_color=self._get_status_color("orange"))
             self.video_stream_show_target_frame = False
 
-    def action_aim_target(self):
-        if not self.drone.status["aiming"]:
+    def action_toggle_aim_target(self):
+        if not self.laser_aim_target:
             self.main_status_label.configure(text="状态: 正在瞄准目标...", text_color=self._get_status_color("orange"))
-            self.drone.status["aiming"] = True
-            self._run_drone_action_in_thread(self.drone.aim_target)
+            # self.drone._aim_ready = True
+            self.laser_aim_target = True
+            self._run_drone_action_in_thread(self.drone.resume_aim_target)
         else:
+            self.laser_aim_target = False
             self.main_status_label.configure(text="状态: 已停止瞄准目标", text_color=self._get_status_color("orange"))
-            self.drone.status["aiming"] = False
+            self._run_drone_action_in_thread(self.drone.pause_aim_target)
+            # self.drone._aim_ready = False
 
     ## --- 自动飞行相关方法 ---
     def action_square_flight(self):
@@ -1059,6 +1071,20 @@ class HulaDroneGUI_CTk_Enhanced:
             unit = self.unit_var.get()
             self.main_status_label.configure(text=f"状态: 正在开始正方形飞行 (边长: {side} {unit})...", text_color=self._get_status_color("orange"))
             self._run_drone_action_in_thread(self.drone.square_flight, side, unit, step_callback=self.drone.set_rotation)
+        except ValueError:
+            messagebox.showerror("输入错误", "边长必须为有效数字")
+
+    def action_square_aim_flight(self):
+        def completion_callback():
+            self.video_stream_show_target_frame = False
+
+        try:
+            self.video_stream_show_target_frame = True
+            side = float(self.side_length_entry.get())
+            unit = self.unit_var.get()
+            time = float(self.aim_time_entry.get())
+            self.main_status_label.configure(text=f"状态: 正在开始正方形飞行【含激光瞄准】 (边长: {side} {unit})...", text_color=self._get_status_color("orange"))
+            self._run_drone_action_in_thread(self.drone.square_aim_flight, side, unit, time, step_callback=self.drone.set_rotation, completion_callback=completion_callback)
         except ValueError:
             messagebox.showerror("输入错误", "边长必须为有效数字")
 
@@ -1071,7 +1097,7 @@ class HulaDroneGUI_CTk_Enhanced:
     def action_capture_image_stream(self):
         if not self.video_stream_active:
             self.main_status_label.configure(text="状态: 正在开启视频流...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.capture_image_stream, self.frame_raw_queue)
+            self._run_drone_action_in_thread(self.drone.start_image_stream, self.frame_raw_queue)
             self.start_video_stream()
         # else:
         #     self.main_status_label.configure(text="状态: 正在关闭视频流...", text_color=self._get_status_color("orange"))

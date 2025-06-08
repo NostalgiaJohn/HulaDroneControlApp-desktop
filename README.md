@@ -18,6 +18,3 @@
 main_frontend.py # GUI主程序
 HulaDrone.py # 无人机控制程序
 target_detector.py # 目标检测程序
-utils/ # 工具函数目录 主要是相机标定相关
-  - matlab_camera_matrix_converter.py # Matlab相机矩阵转换脚本
-  - camera_calibration.npz # 相机标定文件

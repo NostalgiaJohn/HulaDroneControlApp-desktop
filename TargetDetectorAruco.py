@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import os
+import math
 
 # AprilTag 的真实物理尺寸 (单位：米)
 # 确保这个尺寸和你打印的 AprilTag 的黑色边框边长一致
@@ -50,7 +51,7 @@ class TargetDetectorAruco:
 
         self.current_offset_yaw = 0.0
         self.current_offset_pitch = 0.0
-        self.laser_offset_vector = np.array([0.0, 0.009, 0.0], dtype=np.float32)
+        self.laser_offset_vector = np.array([0.0, 0.07, 0.0], dtype=np.float32)
 
     def load_calibration_data(self):
         # 这个函数和你的原代码完全一样，直接复用
@@ -92,6 +93,7 @@ class TargetDetectorAruco:
             cv2.aruco.drawDetectedMarkers(display_frame, corners, ids)
             
             # 遍历所有检测到的标记
+            min_distance = math.inf
             for i, marker_id in enumerate(ids):
                 # 图像上的角点
                 image_points = corners[i]
@@ -118,15 +120,15 @@ class TargetDetectorAruco:
 
                     # --- 后续的距离、角度计算和显示逻辑 (与你的代码基本一致) ---
                     distance = np.linalg.norm(translation_vector)
-                    cv2.putText(display_frame, f"ID: {marker_id[0]}", (10, 30 + i*150),
+                    cv2.putText(display_frame, f"ID: {marker_id[0]}", (10, 30 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-                    cv2.putText(display_frame, f"Dist: {distance:.2f} m", (10, 60 + i*150),
+                    cv2.putText(display_frame, f"Dist: {distance:.2f} m", (10, 60 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                    cv2.putText(display_frame, f"X: {translation_vector[0][0]:.2f}m", (10, 85 + i*150),
+                    cv2.putText(display_frame, f"X: {translation_vector[0][0]:.2f}m", (10, 85 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                    cv2.putText(display_frame, f"Y: {translation_vector[1][0]:.2f}m", (10, 110 + i*150),
+                    cv2.putText(display_frame, f"Y: {translation_vector[1][0]:.2f}m", (10, 110 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                    cv2.putText(display_frame, f"Z: {translation_vector[2][0]:.2f}m", (10, 135 + i*150),
+                    cv2.putText(display_frame, f"Z: {translation_vector[2][0]:.2f}m", (10, 135 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
                     # 计算 Yaw 和 Pitch (这部分逻辑不变)
@@ -139,13 +141,14 @@ class TargetDetectorAruco:
                     pitch_angle_rad = np.arctan2(-ty_laser, np.sqrt(tx_laser**2 + tz_laser**2))
                     pitch_angle_deg = np.degrees(pitch_angle_rad)
                     
-                    cv2.putText(display_frame, f"Yaw: {yaw_angle_deg:.2f} deg", (10, 160 + i*150),
+                    cv2.putText(display_frame, f"Yaw: {yaw_angle_deg:.2f} deg", (10, 160 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2) # Orange color
-                    cv2.putText(display_frame, f"Pitch: {pitch_angle_deg:.2f} deg", (10, 185 + i*150),
+                    cv2.putText(display_frame, f"Pitch: {pitch_angle_deg:.2f} deg", (10, 185 + i*200),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2) # Orange color
 
                     # 假定我们只关心第一个检测到的 Tag
-                    if i == 0:
+                    if distance < min_distance:
+                        min_distance = distance
                         self.current_offset_yaw = yaw_angle_deg
                         self.current_offset_pitch = pitch_angle_deg
 

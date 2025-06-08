@@ -18,7 +18,6 @@ class HulaDrone:
             "connected": False,
             "takeoff": False,
             "cam_stream": False,
-            "aiming": False, # 是否正在对准靶子
 
             "battery_level": "未知",
             "heading": "未知",
@@ -27,16 +26,18 @@ class HulaDrone:
             "message": "等待连接..." # 可以用于显示一般信息
         }
         self.controller: Controller = None
-        self.target_detector: TargetDetectorAruco = TargetDetectorAruco() # 初始化目标检测器
+        self.target_detector: TargetDetectorAruco = None
         self._initial_heading_offset: int = 0
 
         self._query_thread = threading.Thread(target=self._query_loop, daemon=True)
         self._control_thread = None # 将在Controller实例化后创建
         self._cam_thread = None # 将在图像流捕获时创建
+        self._aim_thread = None # 将在TargetDetectorAruco实例化后（见start_image_stream）创建
 
-        self._query_running: bool = False
-        self._cam_running: bool = False
-        # self.controller.running 由 Controller 内部管理，或通过 HulaDrone 的方法间接控制
+        self._query_ready: bool = False
+        self._cam_ready: bool = False
+        self._aim_ready: bool = False # 激光瞄准状态
+        self._pause_aim_event = threading.Event() # 用于控制激光瞄准的暂停（clear）和恢复（set）
 
         self._status_callbacks = [] # 列表，用于存储注册的回调函数
 
@@ -81,11 +82,12 @@ class HulaDrone:
                     heading_ini=self._initial_heading_offset,
                     target_location=[0, 0, 100], # 初始目标设为当前位置或默认值
                     control_interval=0.1,
-                    pid_x=PidCalculator(kp=0.8, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
-                    pid_y=PidCalculator(kp=0.8, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_x=PidCalculator(kp=0.7, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_y=PidCalculator(kp=0.7, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
                     pid_z=PidCalculator(kp=0.6, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                 )
-                self._control_thread = threading.Thread(target=self.controller.control_loop, daemon=True)
+                self._control_thread = threading.Thread(target=self.controller.control_loop, daemon=True) # 创建控制线程
+
                 self._notify_status_callbacks()
                 print("无人机连接成功，控制器已初始化。")
                 return True
@@ -108,7 +110,7 @@ class HulaDrone:
 
     def _query_loop(self):
         """内部线程循环，用于定期查询无人机状态并触发回调。"""
-        while self._query_running:
+        while self._query_ready:
             if self.status["connected"]:
                 try:
                     battery = self.instance.get_battery()
@@ -134,7 +136,7 @@ class HulaDrone:
             else:
                 # 如果未连接，可以减少查询尝试或完全停止，等待重新连接
                 time.sleep(1)
-            time.sleep(0.5) # 状态查询间隔
+            time.sleep(0.2) # 状态查询间隔
 
     def start_background_services(self):
         """启动状态查询和PID控制的背景线程。应在连接成功后调用。"""
@@ -151,8 +153,8 @@ class HulaDrone:
             return False
 
         try:
-            if not self._query_running:
-                self._query_running = True
+            if not self._query_ready:
+                self._query_ready = True
                 self._query_thread.start()
                 print("状态查询服务已启动。")
 
@@ -348,13 +350,25 @@ class HulaDrone:
         self._notify_status_callbacks()
 
     def set_camera_absolute_pitch(self, angle):
-        pass
+        if not self.status["connected"]:
+            self.status["message"] = "未连接，无法设置绝对俯仰角"
+            self._notify_status_callbacks()
+            return
+
+        if angle >= 0:
+            self.instance.Plane_cmd_camera_angle(0, angle)
+            self.status["message"] = f"相机绝对俯仰角设置为 {angle}°"
+        else:
+            self.instance.Plane_cmd_camera_angle(1, abs(angle))
+            self.status["message"] = f"相机绝对俯仰角设置为 {-angle}°"
+        self._notify_status_callbacks()
+        return True
 
     def set_camera_relative_pitch(self, angle) -> bool:
         """
         设置相对俯仰角
 
-        Parameters:
+        Args:
         - angle: 相对角度，负值向下，正值向上
 
         Return:
@@ -375,96 +389,33 @@ class HulaDrone:
         self._notify_status_callbacks()
         return True
     
-    def aim_target(self):
+    def resume_aim_target(self):
         """
         对准目标靶子，使用目标检测器检测靶子位置并调整无人机航向和相机角度。
         """
         if not self.status["connected"]:
-            self.status["message"] = "未连接，无法对准目标"
+            self.status["message"] = "未连接，无法瞄准目标"
             self._notify_status_callbacks()
             return
-
-        # if not self.controller or not self.controller.running:
-        #     self.status["message"] = "控制服务未运行，请先起飞或启动服务"
-        #     self._notify_status_callbacks()
-        #     return
-
-        while self.status["aiming"]:
-            self.set_camera_relative_pitch(int(self.target_detector.current_offset_pitch)) # 调整相机俯仰角
-            self.set_rotation(int(self.target_detector.current_offset_yaw)) # 调整无人机航向
-        return
-    
-    # def align_target_to_center(self, image, target_position, tolerance=10) -> bool:
-    #     """
-    #     Align the target to the center of the view using open-loop adjustments.
-
-    #     Parameters:
-    #     - image: The current frame (numpy array).
-    #     - target_position: The (x, y) coordinates of the target in the image.
-    #     - tolerance: The acceptable offset (in pixels) for considering the target centered.
-
-    #     Return:
-    #     - True if the target is aligned to the center, False if it could not be aligned within the given iterations.
-    #     """
-    #     if not self.status["connected"]:
-    #         self.status["message"] = "未连接，无法调整视野"
-    #         self._notify_status_callbacks()
-    #         return
-
-    #     # Get image dimensions and calculate the center
-    #     height, width, _ = image.shape
-    #     laser_x, laser_y = width // 2.000, height // 2.469  # Use south-west corner as the center of the view (0.500, 0.405)
-
-    #     # Calculate the offset
-    #     target_x, target_y = target_position
-    #     offset_x = target_x - laser_x
-    #     offset_y = target_y - laser_y
-
-    #     # Check if the target is within the acceptable tolerance
-    #     if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
-    #         self.status["message"] = "目标已对准视野中心"
-    #         self._notify_status_callbacks()
-    #         # print(self.status["message"])
-    #         return True
-
-    #     ## TODO: pixel to angle conversion
-    #     # Adjust the camera pitch angle based on vertical offset
-    #     if abs(offset_y) > tolerance:
-    #         if offset_y > 0:
-    #             self.instance.Plane_cmd_camera_angle(1, min(abs(offset_y) // 10, 90))  # Move camera down
-    #         else:
-    #             self.instance.Plane_cmd_camera_angle(0, min(abs(offset_y) // 10, 90))  # Move camera up
-
-    #     ## TODO: pixel to angle conversion
-    #     # Rotate the drone along the z-axis based on horizontal offset
-    #     if abs(offset_x) > tolerance:
-    #         if offset_x > 0:
-    #             self.instance.single_fly_turnright(min(abs(offset_x) // 10, 90))  # Rotate right
-    #         else:
-    #             self.instance.single_fly_turnleft(min(abs(offset_x) // 10, 90))  # Rotate left
-
-    #     # Update the target position (this assumes a method to refresh the image and re-detect the target)
-    #     # todo:这里需要检测靶子位置的函数
-    #     image = self.instance.get_image_array()  # Capture a new frame
-    #     target_position = self.detect_target(image)  # Replace with your target detection logic
-
-    #     if target_position is None:
-    #         self.status["message"] = "无法检测到目标，请检查图像质量或靶子位置"
-    #         self._notify_status_callbacks()
-    #         return False
+        if not self.status["takeoff"]:
+            self.status["message"] = "未起飞，无法瞄准目标"
+            self._notify_status_callbacks()
+            return
+        if not self._aim_ready:
+            self.status["message"] = "未准备，无法瞄准目标"
+            self._notify_status_callbacks()
+            return
+        if not self._aim_thread:
+            self.status["message"] = "无线程，无法瞄准目标"
+            self._notify_status_callbacks()
+            return
         
-    #     # Recalculate the offset after adjustments
-    #     target_x, target_y = target_position
-    #     offset_x = target_x - laser_x
-    #     offset_y = target_y - laser_y
+        self._pause_aim_event.set() # 允许激光瞄准线程继续工作
 
-    #     # Check if the target is within the acceptable tolerance
-    #     if abs(offset_x) <= tolerance and abs(offset_y) <= tolerance:
-    #         self.status["message"] = "目标已对准视野中心"
-    #         self._notify_status_callbacks()
-    #         return True
+    def pause_aim_target(self):
+        self._pause_aim_event.clear() # 暂停激光瞄准线程
 
-    def square_flight(self, side_length: float, unit: str = "time",completion_callback=None, step_callback=None):
+    def square_flight(self, side_length: float, unit: str = "time", completion_callback=None, step_callback=None):
         """
         执行四方形飞行路径
         
@@ -512,7 +463,7 @@ class HulaDrone:
         try:
             self.set_heading(0) # 设置航向为 0
             # 执行飞行计划
-            def wrapped_completion_callback():
+            def wrapped_completion_callback(completion_callback):
                 """包装完成回调以添加四方飞行特定的消息"""
                 self.status["message"] = "四方飞行已完成"
                 self._notify_status_callbacks()
@@ -534,8 +485,119 @@ class HulaDrone:
             # 如果出错，确保清理飞行计划
             self._cleanup_fly_plan()
         finally:
-            self.controller.resume()
-            self.status["message"] += "，PID已恢复"
+            if self.controller and self.controller._pause_event.is_set() == False : # 检查是否是因为本次调用而暂停的
+                self.controller.resume()
+                self.status["message"] += "，PID已恢复"
+            self._notify_status_callbacks()
+
+    def square_aim_flight(self, side_length: float, unit: str, aim_time: float, completion_callback = None, step_callback = None):
+        """
+        执行四方形飞行路径
+        
+        Args:
+            side_length (float): 正方形边长
+            unit (str): 'time' 表示时间单位(秒)，'distance' 表示距离单位(cm)
+            completion_callback (callable, optional): 飞行完成后执行的回调函数
+        """
+        def step_callback(reach_rotation_degree : int):
+            '''飞机到达点位后，旋转reach_rotation_degree'''
+            self.set_rotation(reach_rotation_degree)
+        def post_step_callback(aim_time : int, leave_rotation_degree : int):
+            '''飞机完成step_callback后，开启激光，瞄准目标aim_time时间，关闭激光，再旋转leave_rotation_degree'''
+            # 开启激光
+            time.sleep(1)
+            _tmp_heading = self.status["heading"] # 保存当前航向
+            self.instance.plane_fly_generating(4, 10, 100)
+            self.status["message"] = "激光已开启"
+            self._notify_status_callbacks()
+            # 瞄准目标
+            self.resume_aim_target()
+            time.sleep(aim_time)
+            # 停止瞄准
+            self.pause_aim_target()
+            # 关闭激光
+            self.instance.plane_fly_generating(5, 0, 0)
+            self.status["message"] = "激光已关闭"
+            self._notify_status_callbacks()
+            # 旋转
+            self.set_heading(_tmp_heading) # 恢复之前的航向
+            self.set_rotation(leave_rotation_degree)
+
+        def wrapped_completion_callback():
+            """包装完成回调以添加四方飞行特定的消息"""
+            self.status["message"] = "四方飞行【瞄准】已完成"
+            self._notify_status_callbacks()
+            if completion_callback:
+                completion_callback()
+
+        
+        if not self.status["connected"]:
+            self.status["message"] = "未连接，无法执行四方飞行【瞄准】"
+            self._notify_status_callbacks()
+            return
+        if not self.status["takeoff"]:
+            self.status["message"] = "未起飞，无法执行四方飞行【瞄准】"
+            self._notify_status_callbacks()
+            return
+        if not self.status["cam_stream"]:
+            self.status["message"] = "未开启视频流，无法执行四方飞行【瞄准】"
+            self._notify_status_callbacks()
+            return
+
+        # 原始的四方飞行逻辑
+        if unit == "time":
+            speed = 10  # cm/s, 假设值
+            actual_distance = speed * side_length # 如果side_length是秒
+            print(f"四方飞行：时间模式，边长 {side_length}秒，预估距离 {actual_distance}cm/边")
+        else: # unit == "distance"
+            actual_distance = side_length # side_length是cm
+            print(f"四方飞行：距离模式，边长 {actual_distance}cm/边")
+
+        # 为简化，假设 actual_distance 是要飞行的距离（cm）
+        # 注意：原代码中 unit=="time" 时，distance = speed * side_length / 4
+        # 这里需要明确 side_length 的含义。假设这里的 side_length 已经是SDK期望的参数。
+        # 如果 SDK 的 single_fly_xxx 的参数是距离 (cm):
+        fly_dist = int(actual_distance) # 确保是整数
+        target_pos_original = self.controller.get_target_location()
+        fly_plan = list() # 初始化飞行计划列表，飞行计划包括6个点，分别由 (x, y, z, reach_rotation_degree, aim_time, leave_rotation_degree) 组成
+        # target_pos_original 是一个列表或元组，包含 [x, y, z] 坐标
+        if target_pos_original and len(target_pos_original) == 3:
+            x_original, y_original, z_original = target_pos_original
+            # 计算四个目标位置
+            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 45 , aim_time, -45)) # 第一个点，旋转45度，瞄准aim_time秒后，旋转-45度
+            fly_plan.append((x_original - fly_dist/2, y_original + fly_dist/2, z_original, 135, aim_time, -45)) # 第二个点，旋转135度，瞄准aim_time秒后，旋转-45度
+            fly_plan.append((x_original + fly_dist/2, y_original + fly_dist/2, z_original, 135, aim_time, -45)) # 第三个点，旋转135度，瞄准aim_time秒后，旋转-45度
+            fly_plan.append((x_original + fly_dist/2, y_original - fly_dist/2, z_original, 135, aim_time, -45)) # 第四个点，旋转135度，瞄准aim_time秒后，旋转-45度
+            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 90))
+            fly_plan.append((x_original, y_original, z_original, 0))# 回到起点
+        else:
+            self.status["message"] = "无法获取当前目标位置，无法计算飞行路径。"
+            self._notify_status_callbacks()
+            return
+        
+        try:
+            self.set_heading(0) # 设置航向为 0
+            self.set_camera_absolute_pitch(-45) # 设置相机俯仰角为 -45, 斜向下方以看到靶子
+            # 执行飞行计划
+            success = self.execute_fly_plan(
+                fly_plan, 
+                completion_callback=wrapped_completion_callback,
+                step_callback=step_callback,
+                post_step_callback=post_step_callback
+            )
+
+            if not success:
+                self.status["message"] = "四方飞行【瞄准】初始化失败"
+                self._notify_status_callbacks()
+        except Exception as e:
+            self.status["message"] = f"四方飞行【瞄准】出错: {e}"
+            print(f"四方飞行【瞄准】出错: {e}")
+            # 如果出错，确保清理飞行计划
+            self._cleanup_fly_plan()
+        finally:
+            if self.controller and self.controller._pause_event.is_set() == False : # 检查是否是因为本次调用而暂停的
+                self.controller.resume()
+                self.status["message"] += "，PID已恢复"
             self._notify_status_callbacks()
 
     def toggle_laser(self, enable: bool):
@@ -551,7 +613,7 @@ class HulaDrone:
             self.status["message"] = "激光已关闭"
         self._notify_status_callbacks()
 
-    def execute_fly_plan(self, fly_plan, completion_callback=None, step_callback=None):
+    def execute_fly_plan(self, fly_plan, completion_callback=None, step_callback=None, post_step_callback=None):
         """
         执行飞行计划，在每个目标点到达后继续下一个点，全部完成后执行回调
         
@@ -583,6 +645,7 @@ class HulaDrone:
         self._current_fly_plan_index = 0
         self._fly_plan_completion_callback = completion_callback
         self._fly_plan_step_callback = step_callback
+        self._post_step_callback = post_step_callback
         
         # 定义目标到达的回调函数
         def on_target_reached(current_position):
@@ -604,6 +667,13 @@ class HulaDrone:
                     self._fly_plan_step_callback(current_point[3])
                 except Exception as e:
                     print(f"步骤回调执行错误: {e}")
+
+            # 如果存在后续步骤回调，执行它
+            if self._post_step_callback:
+                try:
+                    self._post_step_callback(current_point[4], current_point[5]) # 传递aim_time和leave_rotation_degree
+                except Exception as e:
+                    print(f"后续步骤回调执行错误: {e}")
             
             # 移动到下一个点
             self._current_fly_plan_index += 1
@@ -670,9 +740,9 @@ class HulaDrone:
 
     def _capture_image_loop(self, queue: queue.Queue):
         """捕获图像流并将其放入队列"""
-        while self._cam_running:
+        while self._cam_ready:
             # print("capturing image")
-            if self.status["connected"]:
+            if self.status["connected"] and self.status["cam_stream"]:
                 try:
                     image = self.instance.get_image_array() # 获取图像数据
                     if image is None:
@@ -687,9 +757,22 @@ class HulaDrone:
                     break
             else:
                 time.sleep(1) # 等待连接
-            time.sleep(1/30) # 控制捕获频率
+            time.sleep(1/10) # 控制捕获频率
 
-    def capture_image_stream(self, queue: queue.Queue): # 改名以示区分，此方法仅打开流
+    def _aim_laser_loop(self):
+        while self._aim_ready:
+            self._pause_aim_event.wait() # 等待激光瞄准的暂停事件
+            if self.status["connected"] and self.status["cam_stream"] and self.target_detector:
+                try:
+                    self.set_camera_relative_pitch(int(self.target_detector.current_offset_pitch)) # 调整相机俯仰角
+                    self.set_rotation(int(self.target_detector.current_offset_yaw)) # 调整无人机航向
+
+                except Exception as e:
+                    print(f"激光瞄准时出错: {e}")
+                    break
+            time.sleep(0.5)
+
+    def start_image_stream(self, queue: queue.Queue): # 改名以示区分，此方法仅打开流
         if not self.status["connected"]:
             self.status["message"] = "未连接，无法打开视频流"
             self._notify_status_callbacks()
@@ -712,16 +795,41 @@ class HulaDrone:
             # 注意：实际图像数据的获取和显示需要更复杂的处理，
             # pyhula.get_image_array() 如果可用，需要在查询循环或独立线程中处理。
             # 对于简单的“前后端分离”而不改逻辑，我们只负责发送命令。
-            self._cam_running = True
+            self.status["cam_stream"] = True
+            self._cam_ready = True
             self._cam_thread = threading.Thread(target=self._capture_image_loop, args=(queue,))
             # 启动图像捕获线程
             self._cam_thread.start()
+
+            self.start_detect_service()
             
         except Exception as e:
             self.status["message"] = f"打开视频流失败: {e}"
             print(f"打开视频流失败: {e}")
             self._notify_status_callbacks()
             return
+        
+    def start_detect_service(self):
+        if not self.status["connected"]:
+            self.status["message"] = "未连接，无法开启检测服务"
+            self._notify_status_callbacks()
+            return
+        
+        try:
+            self.target_detector = TargetDetectorAruco() # 初始化目标检测器
+            self._aim_ready = True
+            self._pause_aim_event = threading.Event() # 用于控制激光瞄准的暂停和恢复
+            self._pause_aim_event.clear() # 初始状态为暂停
+            self._aim_thread = threading.Thread(target=self._aim_laser_loop, daemon=True)
+            self._aim_thread.start() # 启动激光瞄准线程
+
+        except Exception as e:
+            self.status["message"] = f"启动目标检测服务失败: {e}"
+            print(f"启动目标检测服务失败: {e}")
+            self._notify_status_callbacks()
+            return
+    
+
 
     def graceful_exit(self):
         """安全地停止所有无人机活动并关闭线程。"""
@@ -753,19 +861,26 @@ class HulaDrone:
             time.sleep(2) # 给无人机足够的时间降落
 
         if self._query_thread and self._query_thread.is_alive():
-            self._query_running = False # 请求查询线程停止
+            self._query_ready = False # 请求查询线程停止
             print("等待查询线程结束...")
             self._query_thread.join(timeout=1.0)
             if self._query_thread.is_alive():
                 print("警告：查询线程未能及时结束。")
 
-        self._cam_running = False
+        self._cam_ready = False
         if self._cam_thread and self._cam_thread.is_alive():
             self.instance.Plane_cmd_swith_rtp(1)
             print("等待图像捕获线程结束...")
             self._cam_thread.join(timeout=1.0)
             if self._cam_thread.is_alive():
                 print("警告：图像捕获线程未能及时结束。")
+
+        self._aim_ready = False # 停止激光瞄准
+        if self._aim_thread and self._aim_thread.is_alive():
+            print("等待激光瞄准线程结束...")
+            self._aim_thread.join(timeout=1.0)
+            if self._aim_thread.is_alive():
+                print("警告：激光瞄准线程未能及时结束。")
 
         # SDK 是否有显式的断开连接方法？
         # if hasattr(self.instance, 'disconnect'):
