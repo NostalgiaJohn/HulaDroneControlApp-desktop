@@ -33,6 +33,7 @@ class HulaDrone:
         self._control_thread = None # 将在Controller实例化后创建
         self._cam_thread = None # 将在图像流捕获时创建
         self._aim_thread = None # 将在TargetDetectorAruco实例化后（见start_image_stream）创建
+        self.flag_cam_detect = False # 用于标记是否开启了目标检测（见_capture_image_loop）
 
         self._query_ready: bool = False
         self._cam_ready: bool = False
@@ -82,8 +83,8 @@ class HulaDrone:
                     heading_ini=self._initial_heading_offset,
                     target_location=[0, 0, 100], # 初始目标设为当前位置或默认值
                     control_interval=0.1,
-                    pid_x=PidCalculator(kp=0.7, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
-                    pid_y=PidCalculator(kp=0.7, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_x=PidCalculator(kp=0.6, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_y=PidCalculator(kp=0.6, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
                     pid_z=PidCalculator(kp=0.6, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                 )
                 self._control_thread = threading.Thread(target=self.controller.control_loop, daemon=True) # 创建控制线程
@@ -738,7 +739,7 @@ class HulaDrone:
             if hasattr(self, attr):
                 delattr(self, attr)
 
-    def _capture_image_loop(self, queue: queue.Queue):
+    def _capture_image_loop(self, queue_image: queue.Queue, queue_frame: queue.Queue = None):
         """捕获图像流并将其放入队列"""
         while self._cam_ready:
             # print("capturing image")
@@ -749,15 +750,24 @@ class HulaDrone:
                         continue
                     # 处理图像数据
                     if image is not None:
-                        if queue.full():
-                            queue.get_nowait() # 如果队列满，丢弃最旧的图像
-                        queue.put(image) # 将图像放入队列
+                        if queue_image.full():
+                            queue_image.get_nowait() # 如果队列满，丢弃最旧的图像
+                        queue_image.put(image) # 将图像放入队列
+
+                        # 进行目标检测
+                        if self.flag_cam_detect and self.target_detector:
+                            frame = self.target_detector.get_target_frame(image) # 检测目标
+                            if frame is not None:
+                                if queue_frame.full():
+                                    queue_frame.get_nowait() # 如果队列满，丢弃最旧的检测帧
+                                queue_frame.put(frame) # 将检测结果放入队列
+                                
                 except Exception as e:
                     print(f"捕获图像时出错: {e}")
                     break
             else:
                 time.sleep(1) # 等待连接
-            time.sleep(1/10) # 控制捕获频率
+            time.sleep(1/30) # 控制捕获频率
 
     def _aim_laser_loop(self):
         while self._aim_ready:
@@ -770,9 +780,9 @@ class HulaDrone:
                 except Exception as e:
                     print(f"激光瞄准时出错: {e}")
                     break
-            time.sleep(0.5)
+            time.sleep(0.3)
 
-    def start_image_stream(self, queue: queue.Queue): # 改名以示区分，此方法仅打开流
+    def start_image_stream(self, queue_image: queue.Queue, queue_frame: queue.Queue): # 改名以示区分，此方法仅打开流
         if not self.status["connected"]:
             self.status["message"] = "未连接，无法打开视频流"
             self._notify_status_callbacks()
@@ -797,7 +807,7 @@ class HulaDrone:
             # 对于简单的“前后端分离”而不改逻辑，我们只负责发送命令。
             self.status["cam_stream"] = True
             self._cam_ready = True
-            self._cam_thread = threading.Thread(target=self._capture_image_loop, args=(queue,))
+            self._cam_thread = threading.Thread(target=self._capture_image_loop, args=(queue_image, queue_frame))
             # 启动图像捕获线程
             self._cam_thread.start()
 

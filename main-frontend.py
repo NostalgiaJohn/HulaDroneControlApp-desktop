@@ -70,8 +70,9 @@ class HulaDroneGUI_CTk_Enhanced:
         self.video_stream_active = False
         self.video_stream_show_target_frame = False # 是否在视频流中显示打靶目标框
         self.laser_aim_target = False # 激光是否瞄准目标
-        self.frame_raw_queue = queue.Queue(maxsize=1)  # 只保存最新帧
-        self.frame_update_queue = queue.Queue(maxsize=1)  # 只保存最新帧
+        self.image_raw_queue = queue.Queue(maxsize=1)  # 只保存最新图像帧
+        self.image_update_queue = queue.Queue(maxsize=1)  # 只保存最新图像帧
+        self.frame_queue = queue.Queue(maxsize=1)  # 只保存最新检测帧
         
         # --- 创建主容器 ---
         self.main_container = ctk.CTkFrame(self.root)
@@ -843,26 +844,42 @@ class HulaDroneGUI_CTk_Enhanced:
                     return [self.video_img]
                     
                 try:
-                    if not self.frame_raw_queue.empty():
-                        frame = self.frame_raw_queue.get_nowait()
+                    if not self.image_raw_queue.empty():
+                        frame = self.image_raw_queue.get_nowait()
                         if frame is not None:
                             # 调整大小并转换颜色空间
                             frame = cv2.resize(frame, (self.image_width, self.image_height))
                             # cv2.imwrite("temp_frame.jpg", frame)  # 保存临时帧用于调试
                             # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            if not self.video_stream_show_target_frame:
+                            if not self.video_stream_show_target_frame: # 如果不显示目标检测帧
                                 self.video_img.set_data(frame)
-                            else:
+                            else:                                       # 进行目标检测
                                 # 显示目标框架
-                                target_frame = self.drone.target_detector.get_target_frame(frame)
-                                if target_frame is not None:
-                                    target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))
-                                    # cv2.imwrite("temp_target.jpg", target_frame)  # 保存临时目标帧用于调试
-                                    self.video_img.set_data(target_frame)
-                                else:
-                                    # 如果没有目标帧，使用原始帧
-                                    print("未获取到目标帧，使用原始帧")
+                                if self.frame_queue.empty(): # 如果没有检测到目标帧
+                                    print("目标检测帧队列为空，使用原始帧")
+                                    self.main_status_label.configure(text="目标检测：未检测到目标", text_color=self._get_status_color("orange"))
                                     self.video_img.set_data(frame)
+                                else:
+                                    target_frame = self.frame_queue.get_nowait()
+                                    if target_frame is not None:
+                                        target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))
+                                        # cv2.imwrite("temp_target.jpg", target_frame)  # 保存临时目标帧用于调试
+                                        self.video_img.set_data(target_frame)
+                                    else:
+                                        # 如果没有目标帧，使用原始帧
+                                        print("未获取到目标帧，使用原始帧")
+                                        self.main_status_label.configure(text="目标检测：未检测到目标", text_color=self._get_status_color("orange"))
+                                        self.video_img.set_data(frame)
+
+                                # target_frame = self.drone.target_detector.get_target_frame(frame)
+                                # if target_frame is not None:
+                                #     target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))
+                                #     # cv2.imwrite("temp_target.jpg", target_frame)  # 保存临时目标帧用于调试
+                                #     self.video_img.set_data(target_frame)
+                                # else:
+                                #     # 如果没有目标帧，使用原始帧
+                                #     print("未获取到目标帧，使用原始帧")
+                                #     self.video_img.set_data(frame)
                     return [self.video_img]
                 except Exception as e:
                     if not self.cleanup_in_progress:
@@ -1048,9 +1065,11 @@ class HulaDroneGUI_CTk_Enhanced:
         if not self.video_stream_show_target_frame:
             self.main_status_label.configure(text="状态: 正在进行目标检测...", text_color=self._get_status_color("orange"))
             self.video_stream_show_target_frame = True # 与 self.start_video_stream 方法有关
+            self.drone.flag_cam_detect = True # 与 self.drone._capture_image_loop 方法有关
         else:
             self.main_status_label.configure(text="状态: 已停止目标检测", text_color=self._get_status_color("orange"))
             self.video_stream_show_target_frame = False
+            self.drone.flag_cam_detect = False # 与 self.drone._capture_image_loop 方法有关
 
     def action_toggle_aim_target(self):
         if not self.laser_aim_target:
@@ -1076,10 +1095,17 @@ class HulaDroneGUI_CTk_Enhanced:
 
     def action_square_aim_flight(self):
         def completion_callback():
-            self.video_stream_show_target_frame = False
+            self.drone.flag_cam_detect = True
+            self.video_stream_show_target_frame = True
+            self.laser_aim_target = True
+            self._run_drone_action_in_thread(self.drone.pause_aim_target)
 
         try:
+            self.drone.flag_cam_detect = True
             self.video_stream_show_target_frame = True
+            self.laser_aim_target = True
+            self._run_drone_action_in_thread(self.drone.resume_aim_target)
+
             side = float(self.side_length_entry.get())
             unit = self.unit_var.get()
             time = float(self.aim_time_entry.get())
@@ -1097,7 +1123,7 @@ class HulaDroneGUI_CTk_Enhanced:
     def action_capture_image_stream(self):
         if not self.video_stream_active:
             self.main_status_label.configure(text="状态: 正在开启视频流...", text_color=self._get_status_color("orange"))
-            self._run_drone_action_in_thread(self.drone.start_image_stream, self.frame_raw_queue)
+            self._run_drone_action_in_thread(self.drone.start_image_stream, self.image_raw_queue, self.frame_queue)
             self.start_video_stream()
         # else:
         #     self.main_status_label.configure(text="状态: 正在关闭视频流...", text_color=self._get_status_color("orange"))

@@ -1,0 +1,596 @@
+[
+    {
+        "epoch": 2,
+        "timestamp": 1749635674.5249505,
+        "epoch_duration": 0.2055983543395996,
+        "elapsed_time": 4.179295301437378,
+        "current_location": [
+            -3,
+            2,
+            94
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            3,
+            -2,
+            6
+        ],
+        "dx_local": 3.0,
+        "dy_local": -2.0,
+        "dx": 2.8499999999999996,
+        "dy": -1.9,
+        "dz": 4.499999999999999
+    },
+    {
+        "epoch": 3,
+        "timestamp": 1749635674.856269,
+        "epoch_duration": 0.22399139404296875,
+        "elapsed_time": 4.510613679885864,
+        "current_location": [
+            -2,
+            1,
+            97
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            2,
+            -1,
+            3
+        ],
+        "dx_local": 2.0,
+        "dy_local": -1.0,
+        "dx": 2.35,
+        "dy": -1.25,
+        "dz": 2.55
+    },
+    {
+        "epoch": 4,
+        "timestamp": 1749635675.1727028,
+        "epoch_duration": 0.2151505947113037,
+        "elapsed_time": 4.82704758644104,
+        "current_location": [
+            -1,
+            0,
+            99
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            1,
+            0,
+            1
+        ],
+        "dx_local": 1.0,
+        "dy_local": 0.0,
+        "dx": 1.85,
+        "dy": -0.55,
+        "dz": 1.5
+    },
+    {
+        "epoch": 5,
+        "timestamp": 1749635675.499065,
+        "epoch_duration": 0.2136516571044922,
+        "elapsed_time": 5.153409719467163,
+        "current_location": [
+            -1,
+            0,
+            100
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            1,
+            0,
+            0
+        ],
+        "dx_local": 1.0,
+        "dy_local": 0.0,
+        "dx": 2.1,
+        "dy": -0.6000000000000001,
+        "dz": 0.95
+    },
+    {
+        "epoch": 6,
+        "timestamp": 1749635675.8246887,
+        "epoch_duration": 0.21702361106872559,
+        "elapsed_time": 5.479033470153809,
+        "current_location": [
+            0,
+            0,
+            101
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            0,
+            0,
+            -1
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.35,
+        "dy": -0.6000000000000001,
+        "dz": 0.25000000000000006
+    },
+    {
+        "epoch": 7,
+        "timestamp": 1749635676.1376398,
+        "epoch_duration": 0.2058734893798828,
+        "elapsed_time": 5.791984558105469,
+        "current_location": [
+            0,
+            0,
+            101
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            0,
+            0,
+            -1
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.4000000000000001,
+        "dy": -0.6000000000000001,
+        "dz": 0.20000000000000007
+    },
+    {
+        "epoch": 8,
+        "timestamp": 1749635676.449993,
+        "epoch_duration": 0.2092587947845459,
+        "elapsed_time": 6.104337692260742,
+        "current_location": [
+            0,
+            0,
+            100
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            0,
+            0,
+            0
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.4000000000000001,
+        "dy": -0.6000000000000001,
+        "dz": 0.8500000000000001
+    },
+    {
+        "epoch": 9,
+        "timestamp": 1749635676.7558558,
+        "epoch_duration": 0.20240259170532227,
+        "elapsed_time": 6.410200595855713,
+        "current_location": [
+            0,
+            0,
+            100
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            0,
+            0,
+            0
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.4000000000000001,
+        "dy": -0.6000000000000001,
+        "dz": 0.8
+    },
+    {
+        "epoch": 10,
+        "timestamp": 1749635677.0698495,
+        "epoch_duration": 0.21336030960083008,
+        "elapsed_time": 6.724194288253784,
+        "current_location": [
+            0,
+            0,
+            99
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            0,
+            0,
+            1
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.4000000000000001,
+        "dy": -0.6000000000000001,
+        "dz": 1.55
+    },
+    {
+        "epoch": 11,
+        "timestamp": 1749635677.3884032,
+        "epoch_duration": 0.21077919006347656,
+        "elapsed_time": 7.042747974395752,
+        "current_location": [
+            0,
+            0,
+            99
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0,
+            0,
+            100
+        ],
+        "delta_coordinate": [
+            0,
+            0,
+            1
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.4000000000000001,
+        "dy": -0.6000000000000001,
+        "dz": 1.6
+    },
+    {
+        "epoch": 12,
+        "timestamp": 1749635679.3851347,
+        "epoch_duration": 1.888723611831665,
+        "elapsed_time": 9.039479494094849,
+        "current_location": [
+            0,
+            0,
+            98
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            0.0,
+            0.0,
+            52.0
+        ],
+        "dx_local": 0.0,
+        "dy_local": 0.0,
+        "dx": 1.4000000000000001,
+        "dy": -0.6000000000000001,
+        "dz": 35.75
+    },
+    {
+        "epoch": 13,
+        "timestamp": 1749635680.3336897,
+        "epoch_duration": 0.8429439067840576,
+        "elapsed_time": 9.98803448677063,
+        "current_location": [
+            -1,
+            0,
+            131
+        ],
+        "current_heading": 1,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            1.0,
+            0.0,
+            19.0
+        ],
+        "dx_local": 0.9998476951563913,
+        "dy_local": 0.01745240643728351,
+        "dx": 2.3498553103985715,
+        "dy": -0.5834202138845807,
+        "dz": 11.75
+    },
+    {
+        "epoch": 14,
+        "timestamp": 1749635681.2018332,
+        "epoch_duration": 0.7609062194824219,
+        "elapsed_time": 10.856178045272827,
+        "current_location": [
+            -1,
+            0,
+            142
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            1.0,
+            0.0,
+            8.0
+        ],
+        "dx_local": 1.0,
+        "dy_local": 0.0,
+        "dx": 2.499977154273459,
+        "dy": -0.5973821390344075,
+        "dz": 6.25
+    },
+    {
+        "epoch": 15,
+        "timestamp": 1749635681.5159047,
+        "epoch_duration": 0.21027803421020508,
+        "elapsed_time": 11.170249462127686,
+        "current_location": [
+            -3,
+            1,
+            147
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            3.0,
+            -1.0,
+            3.0
+        ],
+        "dx_local": 3.0,
+        "dy_local": -1.0,
+        "dx": 4.599969539031278,
+        "dy": -1.5465095187125433,
+        "dz": 3.55
+    },
+    {
+        "epoch": 16,
+        "timestamp": 1749635681.8334644,
+        "epoch_duration": 0.20872092247009277,
+        "elapsed_time": 11.487809181213379,
+        "current_location": [
+            -4,
+            1,
+            149
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            4.0,
+            -1.0,
+            1.0
+        ],
+        "dx_local": 4.0,
+        "dy_local": -1.0,
+        "dx": 6.049969539031278,
+        "dy": -1.6965095187125434,
+        "dz": 2.5
+    },
+    {
+        "epoch": 17,
+        "timestamp": 1749635682.6739993,
+        "epoch_duration": 0.7391412258148193,
+        "elapsed_time": 12.328344106674194,
+        "current_location": [
+            -5,
+            2,
+            150
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            5.0,
+            -2.0,
+            0.0
+        ],
+        "dx_local": 5.0,
+        "dy_local": -2.0,
+        "dx": 7.55,
+        "dy": -2.8465095187125433,
+        "dz": 1.95
+    },
+    {
+        "epoch": 18,
+        "timestamp": 1749635683.5855541,
+        "epoch_duration": 0.8034203052520752,
+        "elapsed_time": 13.239898920059204,
+        "current_location": [
+            -7,
+            3,
+            152
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            7.0,
+            -3.0,
+            -2.0
+        ],
+        "dx_local": 7.0,
+        "dy_local": -3.0,
+        "dx": 8.999999999999998,
+        "dy": -4.146509518712543,
+        "dz": 0.5000000000000001
+    },
+    {
+        "epoch": 19,
+        "timestamp": 1749635684.7741835,
+        "epoch_duration": 1.0838947296142578,
+        "elapsed_time": 14.428528308868408,
+        "current_location": [
+            -14,
+            9,
+            153
+        ],
+        "current_heading": 1,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            14.0,
+            -9.0,
+            -3.0
+        ],
+        "dx_local": 14.15493939012503,
+        "dy_local": -8.754295566285553,
+        "dx": 14.266204542593773,
+        "dy": -10.16309030668382,
+        "dz": -0.3499999999999998
+    },
+    {
+        "epoch": 20,
+        "timestamp": 1749635686.1493688,
+        "epoch_duration": 1.2608036994934082,
+        "elapsed_time": 15.80371356010437,
+        "current_location": [
+            -26,
+            25,
+            153
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            26.0,
+            -25.0,
+            -3.0
+        ],
+        "dx_local": 26.0,
+        "dy_local": -25.0,
+        "dx": 22.792253030493747,
+        "dy": -22.312285221685723,
+        "dz": -0.5999999999999996
+    },
+    {
+        "epoch": 21,
+        "timestamp": 1749635687.7894351,
+        "epoch_duration": 1.5367352962493896,
+        "elapsed_time": 17.443779945373535,
+        "current_location": [
+            -40,
+            53,
+            153
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            40.0,
+            -53.0,
+            -3.0
+        ],
+        "dx_local": 40.0,
+        "dy_local": -53.0,
+        "dx": 32.7,
+        "dy": -42.49999999999999,
+        "dz": -0.8999999999999998
+    },
+    {
+        "epoch": 22,
+        "timestamp": 1749635689.7773366,
+        "epoch_duration": 1.8865694999694824,
+        "elapsed_time": 19.431681394577026,
+        "current_location": [
+            -55,
+            103,
+            152
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            55.0,
+            -103.0,
+            -2.0
+        ],
+        "dx_local": 55.0,
+        "dy_local": -103.0,
+        "dx": 43.25,
+        "dy": -78.6,
+        "dz": -0.4499999999999999
+    },
+    {
+        "epoch": 23,
+        "timestamp": 1749635698.1079233,
+        "epoch_duration": 8.22506594657898,
+        "elapsed_time": 27.76226806640625,
+        "current_location": [
+            -70,
+            193,
+            149
+        ],
+        "current_heading": 0,
+        "target_location": [
+            0.0,
+            0.0,
+            150.0
+        ],
+        "delta_coordinate": [
+            70.0,
+            -193.0,
+            1.0
+        ],
+        "dx_local": 70.0,
+        "dy_local": -193.0,
+        "dx": 53.75,
+        "dy": -143.6,
+        "dz": 1.5499999999999998
+    }
+]
