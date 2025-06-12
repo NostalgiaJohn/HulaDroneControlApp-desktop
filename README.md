@@ -96,8 +96,8 @@ Follow these steps to set up and run the project.
 **Clone the Repository**:
 
 ```bash
-git clone <your-repository-url>
-cd <repository-directory>
+git clone https://github.com/NostalgiaJohn/HulaDroneControlDestopApp.git
+cd https://github.com/NostalgiaJohn/HulaDroneControlDestopApp.git
 ````
 
 
