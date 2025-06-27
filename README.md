@@ -1,5 +1,8 @@
 # Hula Drone Control Desktop App
 
+[![](https://tokei.rs/b1/github/NostalgiaJohn/HulaDroneControlApp-desktop?type=Python&label=Lines%20of%20Code&style=flat-square)](https://github.com/XAMPPRocky/tokei_rs)
+![](https://img.shields.io/badge/Version-3.6-f1d247?logo=python&style=flat-square)
+
 The Hula Drone Control Desktop App is a comprehensive software suite for the command, control, and analysis of an autonomous drone. Developed as the final coursework for the 'Principle of Automatic Control' course at Sichuan University's College of Electrical Engineering, this app integrates advanced control strategies, computer vision, and a responsive graphical user interface (GUI) to achieve high-precision flight and target interaction.
 
 The core philosophy is to provide a robust platform for both manual operation and complex, automated missions through a modular, safe, and user-friendly design.
