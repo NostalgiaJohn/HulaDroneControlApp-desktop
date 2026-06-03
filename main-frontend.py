@@ -1,21 +1,21 @@
 # main_customtkinter_enhanced.py (HulaDroneGUI with CustomTkinter - Enhanced)
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.font_manager
+import matplotlib.pyplot as plt
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib
-import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-matplotlib.use("TkAgg")
 import numpy as np
-import PIL.Image, PIL.ImageTk
 import cv2
 import threading
 import time
 import queue
 import os
+from pathlib import Path, PosixPath
+from typing import cast
 
 from HulaDrone import HulaDrone # 无人机控制模块
 
@@ -247,11 +247,12 @@ class HulaDroneGUI_CTk_Enhanced:
         self.video_fig.add_axes(self.video_ax)
         
         # 创建初始黑色图像
-        self.video_img = self.video_ax.imshow(np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8))
+        self.video_img = self.video_ax.imshow(np.zeros((self.image_height, self.image_width, 3), dtype="uint8"))
         
         # 嵌入Matplotlib到Tkinter
-        self.video_canvas = FigureCanvasTkAgg(self.video_fig, master=video_frame)
-        self.video_canvas_widget = self.video_canvas.get_tk_widget()
+        video_canvas = FigureCanvasTkAgg(self.video_fig, master=video_frame)
+        self.video_canvas = video_canvas
+        self.video_canvas_widget = video_canvas.get_tk_widget()
         self.video_canvas_widget.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         self.video_canvas_widget.config(background="black")
         
@@ -270,7 +271,8 @@ class HulaDroneGUI_CTk_Enhanced:
         path_frame.grid_columnconfigure(0, weight=1)
         
         # 设置 Matplotlib 字体
-        font = matplotlib.font_manager.FontProperties(fname="./fonts/PingFangSC-Regular.otf")
+        font_path = cast(PosixPath, Path("./fonts/PingFangSC-Regular.otf"))
+        font = matplotlib.font_manager.FontProperties(fname=font_path)
         # plt.rcParams['font.family'] = 'PingFang SC'
         # 创建Matplotlib图形用于显示路径
         self.fig, self.ax = plt.subplots(figsize=(5, 4))
@@ -285,13 +287,14 @@ class HulaDroneGUI_CTk_Enhanced:
         self.ax.legend(loc='upper right', prop={'family': 'Microsoft YaHei'})
         
         # 设置轴范围初始值
-        self.ax.set_xlim([-300, 300])
-        self.ax.set_ylim([-300, 300])
+        self.ax.set_xlim(-300, 300)
+        self.ax.set_ylim(-300, 300)
         
         # 将Matplotlib图形嵌入Tkinter窗口
-        self.canvas = FigureCanvasTkAgg(self.fig, master=path_frame)
-        self.canvas.draw()
-        self.canvas_widget = self.canvas.get_tk_widget()
+        canvas = FigureCanvasTkAgg(self.fig, master=path_frame)
+        self.canvas = canvas
+        canvas.draw()
+        self.canvas_widget = canvas.get_tk_widget()
         self.canvas_widget.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
         # 添加工具按钮
@@ -758,11 +761,13 @@ class HulaDroneGUI_CTk_Enhanced:
                     center_y = (y_min + y_max) / 2
                     y_min, y_max = center_y - 100, center_y + 100
                     
-                self.ax.set_xlim([x_min, x_max])
-                self.ax.set_ylim([y_min, y_max])
+                self.ax.set_xlim(x_min, x_max)
+                self.ax.set_ylim(y_min, y_max)
             
             # Refresh canvas
-            self.canvas.draw_idle()
+            canvas = self.canvas
+            if canvas is not None:
+                canvas.draw_idle()
             
         except Exception as e:
             if not self.cleanup_in_progress:
@@ -788,14 +793,16 @@ class HulaDroneGUI_CTk_Enhanced:
             center_y = (y_min + y_max) / 2
             max_range = max(x_range, y_range)
             
-            self.ax.set_xlim([center_x - max_range/2, center_x + max_range/2])
-            self.ax.set_ylim([center_y - max_range/2, center_y + max_range/2])
+            self.ax.set_xlim(center_x - max_range/2, center_x + max_range/2)
+            self.ax.set_ylim(center_y - max_range/2, center_y + max_range/2)
         else:
             # 默认视图范围
-            self.ax.set_xlim([-300, 300])
-            self.ax.set_ylim([-300, 300])
+            self.ax.set_xlim(-300, 300)
+            self.ax.set_ylim(-300, 300)
         
-        self.canvas.draw()
+        canvas = self.canvas
+        if canvas is not None:
+            canvas.draw()
     
     def clear_flight_path(self):
         """清除飞行路径数据"""
@@ -812,10 +819,12 @@ class HulaDroneGUI_CTk_Enhanced:
         self.current_pos.set_data([], [])
         
         # 恢复默认视图
-        self.ax.set_xlim([-300, 300])
-        self.ax.set_ylim([-300, 300])
+        self.ax.set_xlim(-300, 300)
+        self.ax.set_ylim(-300, 300)
         
-        self.canvas.draw()
+        canvas = self.canvas
+        if canvas is not None:
+            canvas.draw()
     
     def save_flight_path_image(self):
         """保存当前飞行路径图像"""
@@ -848,7 +857,7 @@ class HulaDroneGUI_CTk_Enhanced:
                         frame = self.image_raw_queue.get_nowait()
                         if frame is not None:
                             # 调整大小并转换颜色空间
-                            frame = cv2.resize(frame, (self.image_width, self.image_height))
+                            frame = cv2.resize(frame, (self.image_width, self.image_height))  # type: ignore[attr-defined]
                             # cv2.imwrite("temp_frame.jpg", frame)  # 保存临时帧用于调试
                             # frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                             if not self.video_stream_show_target_frame: # 如果不显示目标检测帧
@@ -862,7 +871,7 @@ class HulaDroneGUI_CTk_Enhanced:
                                 else:
                                     target_frame = self.frame_queue.get_nowait()
                                     if target_frame is not None:
-                                        target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))
+                                        target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))  # type: ignore[attr-defined]
                                         # cv2.imwrite("temp_target.jpg", target_frame)  # 保存临时目标帧用于调试
                                         self.video_img.set_data(target_frame)
                                     else:
@@ -871,15 +880,6 @@ class HulaDroneGUI_CTk_Enhanced:
                                         self.main_status_label.configure(text="目标检测：未检测到目标", text_color=self._get_status_color("orange"))
                                         self.video_img.set_data(frame)
 
-                                # target_frame = self.drone.target_detector.get_target_frame(frame)
-                                # if target_frame is not None:
-                                #     target_frame = cv2.resize(target_frame, (self.image_width, self.image_height))
-                                #     # cv2.imwrite("temp_target.jpg", target_frame)  # 保存临时目标帧用于调试
-                                #     self.video_img.set_data(target_frame)
-                                # else:
-                                #     # 如果没有目标帧，使用原始帧
-                                #     print("未获取到目标帧，使用原始帧")
-                                #     self.video_img.set_data(frame)
                     return [self.video_img]
                 except Exception as e:
                     if not self.cleanup_in_progress:
@@ -894,7 +894,9 @@ class HulaDroneGUI_CTk_Enhanced:
                     blit=True,
                     cache_frame_data=False
                 )
-                self.video_canvas.draw()
+                video_canvas = self.video_canvas
+                if video_canvas is not None:
+                    video_canvas.draw()
             except Exception as e:
                 print(f"创建视频动画时出错: {e}")
                 self.video_stream_active = False
@@ -905,7 +907,9 @@ class HulaDroneGUI_CTk_Enhanced:
         
         if hasattr(self, 'video_animation') and self.video_animation is not None:
             try:
-                self.video_animation.event_source.stop()
+                event_source = getattr(self.video_animation, "event_source", None)
+                if event_source is not None:
+                    event_source.stop()
                 self.video_animation = None
             except:
                 pass
@@ -915,9 +919,11 @@ class HulaDroneGUI_CTk_Enhanced:
                 self.video_status_label.configure(text="视频流已关闭")
             
             if hasattr(self, 'video_img') and hasattr(self, 'video_canvas'):
-                black_frame = np.zeros((self.image_height, self.image_width, 3), dtype=np.uint8)
+                black_frame = np.zeros((self.image_height, self.image_width, 3), dtype="uint8")
                 self.video_img.set_data(black_frame)
-                self.video_canvas.draw()
+                video_canvas = self.video_canvas
+                if video_canvas is not None:
+                    video_canvas.draw()
         except:
             pass
 
@@ -927,8 +933,8 @@ class HulaDroneGUI_CTk_Enhanced:
         thread.start()
 
     def action_connect_drone(self):
-        ip = self.ip_entry.get().strip()
-        if not ip: ip = None
+        ip_text = self.ip_entry.get().strip()
+        ip = ip_text if ip_text else None
         self.status_label.configure(text="状态: 正在连接...", text_color=self._get_status_color("orange"))
         self._run_drone_action_in_thread(self.drone.connect, ip)
 
@@ -1299,7 +1305,9 @@ class HulaDroneGUI_CTk_Enhanced:
             
             # Stop matplotlib animations
             if hasattr(self, 'video_animation') and self.video_animation is not None:
-                self.video_animation.event_source.stop()
+                event_source = getattr(self.video_animation, "event_source", None)
+                if event_source is not None:
+                    event_source.stop()
                 self.video_animation = None
                 
             # Close matplotlib figures

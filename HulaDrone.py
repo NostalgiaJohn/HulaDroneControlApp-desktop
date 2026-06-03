@@ -1,11 +1,9 @@
 # HulaDrone.py
 import pyhula
 import time
-import cv2 # 仅当实际使用cv2功能时保留
 import threading
 import queue
-from datetime import datetime # 用于 Controller 中的文件名
-import json # 用于 Controller 中的数据转储
+from typing import Optional
 
 # 假设 Controller.py 和 PidCalculator 在同一目录下或可被导入
 from Controller import Controller, PidCalculator
@@ -25,14 +23,14 @@ class HulaDrone:
             "height": "未知",      # z
             "message": "等待连接..." # 可以用于显示一般信息
         }
-        self.controller: Controller = None
-        self.target_detector: TargetDetectorAruco = None
+        self.controller: Optional[Controller] = None
+        self.target_detector: Optional[TargetDetectorAruco] = None
         self._initial_heading_offset: int = 0
 
         self._query_thread = threading.Thread(target=self._query_loop, daemon=True)
-        self._control_thread = None # 将在Controller实例化后创建
-        self._cam_thread = None # 将在图像流捕获时创建
-        self._aim_thread = None # 将在TargetDetectorAruco实例化后（见start_image_stream）创建
+        self._control_thread: Optional[threading.Thread] = None # 将在Controller实例化后创建
+        self._cam_thread: Optional[threading.Thread] = None # 将在图像流捕获时创建
+        self._aim_thread: Optional[threading.Thread] = None # 将在TargetDetectorAruco实例化后（见start_image_stream）创建
         self.flag_cam_detect = False # 用于标记是否开启了目标检测（见_capture_image_loop）
 
         self._query_ready: bool = False
@@ -65,7 +63,7 @@ class HulaDrone:
             except Exception as e:
                 print(f"执行状态回调时出错: {e}")
 
-    def connect(self, ip: str = None) -> bool:
+    def connect(self, ip: Optional[str] = None) -> bool:
         """连接无人机，输入IP地址（可选）。成功返回True，失败返回False。"""
         try:
             if not ip: # 自动获取IP
@@ -191,13 +189,14 @@ class HulaDrone:
 
 
     def takeoff(self):
-        if not self.status["connected"] or not self.controller:
+        controller = self.controller
+        if not self.status["connected"] or controller is None:
             self.status["message"] = "未连接或控制器未就绪，无法起飞"
             self._notify_status_callbacks()
             print(self.status["message"])
             return
 
-        if not self.controller.running or not self._control_thread.is_alive():
+        if not controller.running or self._control_thread is None or not self._control_thread.is_alive():
             self.status["message"] = "控制服务未运行，请先启动服务"
             self._notify_status_callbacks()
             print(self.status["message"])
@@ -213,14 +212,14 @@ class HulaDrone:
             # Controller的target_location会在其循环中被使用
             initial_pos = [0, 0, 100]
             if initial_pos:
-                self.controller.set_global_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
+                controller.set_global_target_location([initial_pos[0], initial_pos[1], initial_pos[2]]) # 目标高度50cm
                 self.status["message"] = f"已起飞，目标位置：[{initial_pos[0]}, {initial_pos[1]}, {initial_pos[2]}]"
             else:
                 # 如果无法获取当前坐标，Controller会使用其初始化时的默认目标
                 self.status["message"] = "已起飞，前往默认目标位置"
 
-            if self.controller and self.controller._pause_event.is_set() == False: # 如果之前是暂停的
-                self.controller.resume() # 确保PID控制器是活动的
+            if controller._pause_event.is_set() == False: # 如果之前是暂停的
+                controller.resume() # 确保PID控制器是活动的
             self._notify_status_callbacks()
         
         except Exception as e:
@@ -259,13 +258,14 @@ class HulaDrone:
 
     def move_to_global_target(self, x: float, y: float, z: float):
         """通过PID控制器移动到全局目标坐标 [x, y, z] (单位cm)。"""
-        if not self.status["connected"] or not self.controller or not self.controller.running:
+        controller = self.controller
+        if not self.status["connected"] or controller is None or not controller.running:
             self.status["message"] = "未连接或控制服务未运行，无法移动"
             self._notify_status_callbacks()
             print(self.status["message"])
             return
 
-        if self.controller.set_global_target_location([x, y, z]):
+        if controller.set_global_target_location([x, y, z]):
             self.status["message"] = f"移动目标设定: [{x}, {y}, {z}]"
         else:
             self.status["message"] = "无效的目标位置"
@@ -273,13 +273,14 @@ class HulaDrone:
 
     def move_to_local_target(self, x: float, y: float, z: float):
         """通过PID控制器移动到相对于当前坐标的目标位置 [x, y, z] (单位cm)。"""
-        if not self.status["connected"] or not self.controller or not self.controller.running:
+        controller = self.controller
+        if not self.status["connected"] or controller is None or not controller.running:
             self.status["message"] = "未连接或控制服务未运行，无法移动"
             self._notify_status_callbacks()
             print(self.status["message"])
             return
         
-        if self.controller.set_local_target_location([x, y, z]):
+        if controller.set_local_target_location([x, y, z]):
             self.status["message"] = f"相对移动目标设定: [{x}, {y}, {z}]"
         else:
             self.status["message"] = "无效的相对目标位置"
@@ -451,6 +452,10 @@ class HulaDrone:
             self.status["message"] = "未连接，无法执行四方飞行"
             self._notify_status_callbacks()
             return
+        if self.controller is None:
+            self.status["message"] = "控制器未初始化，无法执行四方飞行"
+            self._notify_status_callbacks()
+            return
 
         # 原始的四方飞行逻辑
         if unit == "time":
@@ -486,7 +491,7 @@ class HulaDrone:
         try:
             self.set_heading(0) # 设置航向为 0
             # 执行飞行计划
-            def wrapped_completion_callback(completion_callback):
+            def wrapped_completion_callback():
                 """包装完成回调以添加四方飞行特定的消息"""
                 self.status["message"] = "四方飞行已完成"
                 self._notify_status_callbacks()
@@ -525,7 +530,7 @@ class HulaDrone:
         def debug_log(message: str):
             print(f"[square_aim_flight][{time.strftime('%H:%M:%S')}] {message}")
 
-        def step_callback(reach_rotation_degree : int):
+        def reach_step_callback(reach_rotation_degree : int):
             '''飞机到达点位后，旋转reach_rotation_degree'''
             debug_log(f"step rotation start: reach_rotation_degree={reach_rotation_degree}")
             self.pause_aim_target()
@@ -605,6 +610,10 @@ class HulaDrone:
             self.status["message"] = "未开启视频流，无法执行四方飞行【瞄准】"
             self._notify_status_callbacks()
             return
+        if self.controller is None:
+            self.status["message"] = "控制器未初始化，无法执行四方飞行【瞄准】"
+            self._notify_status_callbacks()
+            return
 
         # 原始的四方飞行逻辑
         if unit == "time":
@@ -649,7 +658,7 @@ class HulaDrone:
             success = self.execute_fly_plan(
                 fly_plan, 
                 completion_callback=wrapped_completion_callback,
-                step_callback=step_callback,
+                step_callback=reach_step_callback,
                 post_step_callback=post_step_callback
             )
 
@@ -703,6 +712,7 @@ class HulaDrone:
             self.status["message"] = "无法执行飞行计划：控制器未初始化"
             self._notify_status_callbacks()
             return False
+        controller = self.controller
 
         # 清理可能存在的旧飞行计划
         self._cleanup_fly_plan()
@@ -765,7 +775,7 @@ class HulaDrone:
             
             # 设置下一个目标点
             next_point = self._current_fly_plan[self._current_fly_plan_index][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_global_target_location(list(next_point))
+            controller.set_global_target_location(list(next_point))
             
             # 更新状态消息
             self.status["message"] = f"执行飞行计划：前往第{self._current_fly_plan_index + 1}/{total_points}个点：[{next_point[0]}, {next_point[1]}, {next_point[2]}]"
@@ -776,15 +786,15 @@ class HulaDrone:
         
         try:
             # 注册目标到达回调
-            self.controller.register_target_reached_callback(self._target_reached_callback)
+            controller.register_target_reached_callback(self._target_reached_callback)
             
             # 确保控制器在运行
-            if not self.controller._pause_event.is_set():
-                self.controller.resume()
+            if not controller._pause_event.is_set():
+                controller.resume()
             
             # 设置第一个目标位置
             first_point = fly_plan[0][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_global_target_location(list(first_point))
+            controller.set_global_target_location(list(first_point))
             self.status["message"] = f"执行飞行计划：前往第1/{len(fly_plan)}个点：[{first_point[0]}, {first_point[1]}, {first_point[2]}]"
             self._notify_status_callbacks()
             return True
@@ -806,7 +816,7 @@ class HulaDrone:
             if hasattr(self, attr):
                 delattr(self, attr)
 
-    def _capture_image_loop(self, queue_image: queue.Queue, queue_frame: queue.Queue = None):
+    def _capture_image_loop(self, queue_image: queue.Queue, queue_frame: Optional[queue.Queue] = None):
         """捕获图像流并将其放入队列"""
         while self._cam_ready:
             # print("capturing image")
@@ -824,7 +834,7 @@ class HulaDrone:
                         # 进行目标检测
                         if self.flag_cam_detect and self.target_detector:
                             frame = self.target_detector.get_target_frame(image) # 检测目标
-                            if frame is not None:
+                            if frame is not None and queue_frame is not None:
                                 if queue_frame.full():
                                     queue_frame.get_nowait() # 如果队列满，丢弃最旧的检测帧
                                 queue_frame.put(frame) # 将检测结果放入队列
