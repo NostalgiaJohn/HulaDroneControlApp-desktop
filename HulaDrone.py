@@ -6,10 +6,76 @@ import threading
 import queue
 from datetime import datetime # 用于 Controller 中的文件名
 import json # 用于 Controller 中的数据转储
+from dataclasses import dataclass
+from typing import List, Optional
 
 # 假设 Controller.py 和 PidCalculator 在同一目录下或可被导入
 from Controller import Controller, PidCalculator
 from TargetDetectorAruco import TargetDetectorAruco # 假设有一个目标检测模块
+
+
+@dataclass
+class FlightPlanPoint:
+    """飞行计划中的单个目标点，以及到达该点后的动作提示。"""
+    # 目标点坐标，单位沿用 Controller 的全局坐标系，通常为 cm。
+    x: float
+    y: float
+    z: float
+
+    # 到达该点后立即执行的旋转角度，正负方向由 set_rotation 定义。
+    reach_rotation_degree: float = 0
+
+    # 瞄准动作参数；None 表示该点不执行瞄准后处理。
+    aim_time: Optional[float] = None
+    leave_rotation_degree: Optional[float] = None
+
+    # 瞄准时优先锁定的 AprilTag ID；None 表示由检测器自行选择。
+    preferred_tag_id: Optional[int] = None
+
+    # 人工提示，用于说明这个点在计划中的目的。
+    hint: str = ""
+
+    @property
+    def target_location(self) -> List[float]:
+        return [self.x, self.y, self.z]
+
+    @property
+    def location_text(self) -> str:
+        return (
+            f"[{self._format_coordinate(self.x)}, "
+            f"{self._format_coordinate(self.y)}, "
+            f"{self._format_coordinate(self.z)}]"
+        )
+
+    @property
+    def has_post_step(self) -> bool:
+        return self.aim_time is not None and self.leave_rotation_degree is not None
+
+    @staticmethod
+    def _format_coordinate(value: float) -> str:
+        return f"{value:g}" if isinstance(value, (int, float)) else str(value)
+
+    def action_hint(self) -> str:
+        """返回完整动作提示，适合日志或详情面板使用。"""
+        hints = []
+        if self.hint:
+            hints.append(self.hint)
+        if self.reach_rotation_degree:
+            hints.append(f"到点转{self.reach_rotation_degree:g}°")
+        if self.has_post_step:
+            hints.append(f"瞄准{self.aim_time:g}s")
+            hints.append(f"离点转{self.leave_rotation_degree:g}°")
+        if self.preferred_tag_id is not None:
+            hints.append(f"Tag{self.preferred_tag_id}")
+        return "；".join(hints)
+
+    def short_action_hint(self, max_length: int = 24) -> str:
+        """返回状态栏短提示，避免长文本撑开界面。"""
+        hint = self.action_hint()
+        if len(hint) <= max_length:
+            return hint
+        return hint[:max_length - 3] + "..."
+
 
 class HulaDrone:
     def __init__(self):
@@ -467,17 +533,52 @@ class HulaDrone:
         # 如果 SDK 的 single_fly_xxx 的参数是距离 (cm):
         fly_dist = int(actual_distance) # 确保是整数
         target_pos_original = self.controller.get_target_location()
-        fly_plan = list() # 初始化飞行计划列表，飞行计划包括6个点，分别由 (x, y, z, complete_right_turn_degree) 组成
         # target_pos_original 是一个列表或元组，包含 [x, y, z] 坐标
         if target_pos_original and len(target_pos_original) == 3:
             x_original, y_original, z_original = target_pos_original
-            # 计算四个目标位置
-            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 0))
-            fly_plan.append((x_original - fly_dist/2, y_original + fly_dist/2, z_original, 90))
-            fly_plan.append((x_original + fly_dist/2, y_original + fly_dist/2, z_original, 90))
-            fly_plan.append((x_original + fly_dist/2, y_original - fly_dist/2, z_original, 90))
-            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 90))
-            fly_plan.append((x_original, y_original, z_original, 0))# 回到起点
+            half_dist = fly_dist / 2
+            fly_plan = [
+                FlightPlanPoint(
+                    x_original - half_dist,
+                    y_original - half_dist,
+                    z_original,
+                    hint="方形第1点",
+                ),
+                FlightPlanPoint(
+                    x_original - half_dist,
+                    y_original + half_dist,
+                    z_original,
+                    reach_rotation_degree=90,
+                    hint="方形第2点",
+                ),
+                FlightPlanPoint(
+                    x_original + half_dist,
+                    y_original + half_dist,
+                    z_original,
+                    reach_rotation_degree=90,
+                    hint="方形第3点",
+                ),
+                FlightPlanPoint(
+                    x_original + half_dist,
+                    y_original - half_dist,
+                    z_original,
+                    reach_rotation_degree=90,
+                    hint="方形第4点",
+                ),
+                FlightPlanPoint(
+                    x_original - half_dist,
+                    y_original - half_dist,
+                    z_original,
+                    reach_rotation_degree=90,
+                    hint="闭合方形",
+                ),
+                FlightPlanPoint(
+                    x_original,
+                    y_original,
+                    z_original,
+                    hint="回到起点",
+                ),
+            ]
         else:
             self.status["message"] = "无法获取当前目标位置，无法计算飞行路径。"
             self._notify_status_callbacks()
@@ -486,7 +587,7 @@ class HulaDrone:
         try:
             self.set_heading(0) # 设置航向为 0
             # 执行飞行计划
-            def wrapped_completion_callback(completion_callback):
+            def wrapped_completion_callback():
                 """包装完成回调以添加四方飞行特定的消息"""
                 self.status["message"] = "四方飞行已完成"
                 self._notify_status_callbacks()
@@ -522,68 +623,38 @@ class HulaDrone:
             unit (str): 'time' 表示时间单位(秒)，'distance' 表示距离单位(cm)
             completion_callback (callable, optional): 飞行完成后执行的回调函数
         """
-        def debug_log(message: str):
-            print(f"[square_aim_flight][{time.strftime('%H:%M:%S')}] {message}")
-
-        def step_callback(reach_rotation_degree : int):
+        def step_callback(reach_rotation_degree: int):
             '''飞机到达点位后，旋转reach_rotation_degree'''
-            debug_log(f"step rotation start: reach_rotation_degree={reach_rotation_degree}")
             self.pause_aim_target()
-            debug_log("aim paused before step rotation")
-            debug_log("wait aim adjustment idle before step rotation start")
             self._wait_for_aim_adjustment_idle()
-            debug_log("wait aim adjustment idle before step rotation end")
             time.sleep(0.4)
             self.set_rotation(reach_rotation_degree)
-            debug_log(f"step rotation end: reach_rotation_degree={reach_rotation_degree}")
-        def post_step_callback(aim_time : int, leave_rotation_degree : int, preferred_tag_id = None):
+
+        def post_step_callback(aim_time: float, leave_rotation_degree: float, preferred_tag_id=None):
             '''飞机完成step_callback后，开启激光，瞄准目标aim_time时间，关闭激光，再旋转leave_rotation_degree'''
-            debug_log(f"post step start: aim_time={aim_time}, leave_rotation_degree={leave_rotation_degree}, preferred_tag_id={preferred_tag_id}")
             if self.target_detector:
                 self.target_detector.set_preferred_tag_id(preferred_tag_id)
-                debug_log(f"preferred tag set: {preferred_tag_id}")
             # 开启激光
-            debug_log("pre-laser delay start")
             time.sleep(1)
-            debug_log("pre-laser delay end")
             _tmp_heading = self.status["heading"] # 保存当前航向
-            debug_log(f"saved heading: {_tmp_heading}")
-            debug_log("laser on start")
             self.instance.plane_fly_generating(4, 10, 100)
-            debug_log("laser on end")
             self.status["message"] = "激光已开启"
             self._notify_status_callbacks()
             # 瞄准目标
-            debug_log("resume aim start")
             self.resume_aim_target()
-            debug_log("resume aim end")
-            debug_log(f"aim sleep start: {aim_time}s")
             time.sleep(aim_time)
-            debug_log("aim sleep end")
             # 停止瞄准
-            debug_log("pause aim start")
             self.pause_aim_target()
-            debug_log("pause aim end")
-            debug_log("wait aim adjustment idle after pause start")
             self._wait_for_aim_adjustment_idle()
-            debug_log("wait aim adjustment idle after pause end")
             if self.target_detector:
                 self.target_detector.clear_preferred_tag_id()
-                debug_log("preferred tag cleared")
             # 关闭激光
-            debug_log("laser off start")
             self.instance.plane_fly_generating(5, 0, 0)
-            debug_log("laser off end")
             self.status["message"] = "激光已关闭"
             self._notify_status_callbacks()
             # 旋转
-            debug_log(f"restore heading start: {_tmp_heading}")
             self.set_heading(_tmp_heading) # 恢复之前的航向
-            debug_log(f"restore heading end: {_tmp_heading}")
-            debug_log(f"leave rotation start: {leave_rotation_degree}")
             self.set_rotation(leave_rotation_degree)
-            debug_log(f"leave rotation end: {leave_rotation_degree}")
-            debug_log("post step end")
 
         def wrapped_completion_callback():
             """包装完成回调以添加四方飞行特定的消息"""
@@ -621,17 +692,65 @@ class HulaDrone:
         # 如果 SDK 的 single_fly_xxx 的参数是距离 (cm):
         fly_dist = int(actual_distance) # 确保是整数
         target_pos_original = self.controller.get_target_location()
-        fly_plan = list() # 初始化飞行计划列表，飞行计划包括6个点，分别由 (x, y, z, reach_rotation_degree, aim_time, leave_rotation_degree) 组成
         # target_pos_original 是一个列表或元组，包含 [x, y, z] 坐标
         if target_pos_original and len(target_pos_original) == 3:
             x_original, y_original, z_original = target_pos_original
-            # 计算四个目标位置
-            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 45 , aim_time, -45, 3)) # 第一个点，优先瞄准Tag 3
-            fly_plan.append((x_original - fly_dist/2, y_original + fly_dist/2, z_original, 135, aim_time, -45, 2)) # 第二个点，优先瞄准Tag 2
-            fly_plan.append((x_original + fly_dist/2, y_original + fly_dist/2, z_original, 135, aim_time, -45, 1)) # 第三个点，优先瞄准Tag 1
-            fly_plan.append((x_original + fly_dist/2, y_original - fly_dist/2, z_original, 135, aim_time, -45, 0)) # 第四个点，优先瞄准Tag 0
-            fly_plan.append((x_original - fly_dist/2, y_original - fly_dist/2, z_original, 90))
-            fly_plan.append((x_original, y_original, z_original, 0))# 回到起点
+            half_dist = fly_dist / 2
+            fly_plan = [
+                FlightPlanPoint(
+                    x_original - half_dist,
+                    y_original - half_dist,
+                    z_original,
+                    reach_rotation_degree=45,
+                    aim_time=aim_time,
+                    leave_rotation_degree=-45,
+                    preferred_tag_id=3,
+                    hint="瞄准第1点",
+                ),
+                FlightPlanPoint(
+                    x_original - half_dist,
+                    y_original + half_dist,
+                    z_original,
+                    reach_rotation_degree=135,
+                    aim_time=aim_time,
+                    leave_rotation_degree=-45,
+                    preferred_tag_id=2,
+                    hint="瞄准第2点",
+                ),
+                FlightPlanPoint(
+                    x_original + half_dist,
+                    y_original + half_dist,
+                    z_original,
+                    reach_rotation_degree=135,
+                    aim_time=aim_time,
+                    leave_rotation_degree=-45,
+                    preferred_tag_id=1,
+                    hint="瞄准第3点",
+                ),
+                FlightPlanPoint(
+                    x_original + half_dist,
+                    y_original - half_dist,
+                    z_original,
+                    reach_rotation_degree=135,
+                    aim_time=aim_time,
+                    leave_rotation_degree=-45,
+                    preferred_tag_id=0,
+                    hint="瞄准第4点",
+                ),
+                FlightPlanPoint(
+                    x_original - half_dist,
+                    y_original - half_dist,
+                    z_original,
+                    reach_rotation_degree=90,
+                    hint="闭合方形",
+                ),
+                FlightPlanPoint(
+                    x_original,
+                    y_original,
+                    z_original,
+                    hint="回到起点",
+                ),
+            ]
         else:
             self.status["message"] = "无法获取当前目标位置，无法计算飞行路径。"
             self._notify_status_callbacks()
@@ -639,10 +758,7 @@ class HulaDrone:
         
         try:
             self.pause_aim_target()
-            debug_log("aim paused before square aim flight setup")
-            debug_log("wait aim adjustment idle before setup start")
             self._wait_for_aim_adjustment_idle()
-            debug_log("wait aim adjustment idle before setup end")
             self.set_heading(0) # 设置航向为 0
             self.set_camera_absolute_pitch(-45) # 设置相机俯仰角为 -45, 斜向下方以看到靶子
             # 执行飞行计划
@@ -680,17 +796,27 @@ class HulaDrone:
             self.status["message"] = "激光已关闭"
         self._notify_status_callbacks()
 
-    def execute_fly_plan(self, fly_plan, completion_callback=None, step_callback=None, post_step_callback=None):
+    def _format_fly_plan_point_status(self, action: str, point_index: int, total_points: int, point: FlightPlanPoint) -> str:
+        hint = point.short_action_hint()
+        hint_text = f"；{hint}" if hint else ""
+        return f"计划：{action}{point_index}/{total_points} {point.location_text}{hint_text}"
+
+    def execute_fly_plan(self, fly_plan: List[FlightPlanPoint], completion_callback=None, step_callback=None, post_step_callback=None):
         """
         执行飞行计划，在每个目标点到达后继续下一个点，全部完成后执行回调
         
         Args:
-            fly_plan (list): 包含(x, y, z, complete_right_turn_degree)的飞行计划点列表
+            fly_plan (list[FlightPlanPoint]): 飞行计划点列表
             completion_callback (callable, optional): 整个飞行计划完成后执行的回调函数
-            step_callback (callable, optional): 每个飞行点到达后执行的回调函数，参数为当前点索引
+            step_callback (callable, optional): 每个飞行点到达后执行的回调函数，参数为到达后旋转角
         """
         if not fly_plan:
             self.status["message"] = "无法执行飞行计划：计划为空"
+            self._notify_status_callbacks()
+            return False
+
+        if not all(isinstance(point, FlightPlanPoint) for point in fly_plan):
+            self.status["message"] = "无法执行飞行计划：计划点必须为 FlightPlanPoint"
             self._notify_status_callbacks()
             return False
         
@@ -725,21 +851,29 @@ class HulaDrone:
             current_index = self._current_fly_plan_index
             current_point = self._current_fly_plan[current_index]
             total_points = len(self._current_fly_plan)
-            self.status["message"] = f"执行飞行计划：到达第{current_index + 1}/{total_points}个点：[{current_point[0]}, {current_point[1]}, {current_point[2]}]"
+            self.status["message"] = self._format_fly_plan_point_status(
+                "到达",
+                current_index + 1,
+                total_points,
+                current_point,
+            )
             self._notify_status_callbacks()
             
             # 如果存在步骤回调，执行它
             if self._fly_plan_step_callback:
                 try:
-                    self._fly_plan_step_callback(current_point[3])
+                    self._fly_plan_step_callback(current_point.reach_rotation_degree)
                 except Exception as e:
                     print(f"步骤回调执行错误: {e}")
 
             # 如果存在后续步骤回调，执行它
-            if self._post_step_callback and len(current_point) >= 6:
+            if self._post_step_callback and current_point.has_post_step:
                 try:
-                    preferred_tag_id = current_point[6] if len(current_point) >= 7 else None
-                    self._post_step_callback(current_point[4], current_point[5], preferred_tag_id) # 传递aim_time、leave_rotation_degree和优先Tag
+                    self._post_step_callback(
+                        current_point.aim_time,
+                        current_point.leave_rotation_degree,
+                        current_point.preferred_tag_id,
+                    )
                 except Exception as e:
                     print(f"后续步骤回调执行错误: {e}")
             
@@ -764,11 +898,16 @@ class HulaDrone:
                 return
             
             # 设置下一个目标点
-            next_point = self._current_fly_plan[self._current_fly_plan_index][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_global_target_location(list(next_point))
+            next_point = self._current_fly_plan[self._current_fly_plan_index]
+            self.controller.set_global_target_location(next_point.target_location)
             
             # 更新状态消息
-            self.status["message"] = f"执行飞行计划：前往第{self._current_fly_plan_index + 1}/{total_points}个点：[{next_point[0]}, {next_point[1]}, {next_point[2]}]"
+            self.status["message"] = self._format_fly_plan_point_status(
+                "前往",
+                self._current_fly_plan_index + 1,
+                total_points,
+                next_point,
+            )
             self._notify_status_callbacks()
         
         # 保存回调函数以便后续清理
@@ -783,9 +922,14 @@ class HulaDrone:
                 self.controller.resume()
             
             # 设置第一个目标位置
-            first_point = fly_plan[0][0:3] # 取前3个元素 (x, y, z)
-            self.controller.set_global_target_location(list(first_point))
-            self.status["message"] = f"执行飞行计划：前往第1/{len(fly_plan)}个点：[{first_point[0]}, {first_point[1]}, {first_point[2]}]"
+            first_point = fly_plan[0]
+            self.controller.set_global_target_location(first_point.target_location)
+            self.status["message"] = self._format_fly_plan_point_status(
+                "前往",
+                1,
+                len(fly_plan),
+                first_point,
+            )
             self._notify_status_callbacks()
             return True
             
