@@ -151,9 +151,9 @@ class HulaDrone:
                     heading_ini=self._initial_heading_offset,
                     target_location=[0, 0, 100], # 初始目标设为当前位置或默认值
                     control_interval=0.1,
-                    pid_x=PidCalculator(kp=0.6, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
-                    pid_y=PidCalculator(kp=0.6, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
-                    pid_z=PidCalculator(kp=0.6, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_x=PidCalculator(kp=0.5, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_y=PidCalculator(kp=0.5, ki=0.2, kd=0.05, integral_min=-20, integral_max=20),
+                    pid_z=PidCalculator(kp=0.5, ki=0.1, kd=0.05, integral_min=-20, integral_max=20),
                 )
                 self._control_thread = threading.Thread(target=self.controller.control_loop, daemon=True) # 创建控制线程
 
