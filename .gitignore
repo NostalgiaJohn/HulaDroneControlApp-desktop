@@ -1,1 +1,42 @@
-flight_data_20250519_2258.json
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+
+# Virtual environments and local dependency folders
+.venv/
+venv/
+env/
+
+# IDE and editor metadata
+.idea/
+.vscode/
+*.code-workspace
+
+# Local OS metadata
+.DS_Store
+Thumbs.db
+
+# Runtime logs and transient media/session files
+*.log
+tmp.sdp
+
+# Flight runtime outputs
+flight_journals/
+flight_plots/
+flight_data_*.json
+
+# Local connection and deployment secrets
+.codex-ssh/
+*.pem
+*.key
+*.env
+
+# Local test archives and generated demos
+*.zip
+*.mp4
+.github/demo_3fps_test.gif
